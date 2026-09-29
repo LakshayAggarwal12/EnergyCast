@@ -1,0 +1,20 @@
+# secrets
+.env
+*.env.local
+
+# python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+
+# runtime storage (uploaded datasets and trained model artifacts)
+backend/data/raw/
+backend/data/processed/
+backend/models/*
+!backend/models/.gitkeep
+
+# node
+node_modules/
+frontend/dist/
