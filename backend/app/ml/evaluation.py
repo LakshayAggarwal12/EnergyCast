@@ -47,7 +47,7 @@ def best_on_validation(models: list[dict[str, Any]], metric: str = "mae") -> dic
     """Selection uses validation only; the test set is reserved for reporting."""
     scored = [
         m for m in models
-        if m.get("status") == "trained" and (m.get("metrics") or {}).get("validation", {}).get(metric) is not None
+        if m.get("status") in ("trained", "published") and (m.get("metrics") or {}).get("validation", {}).get(metric) is not None
     ]
     if not scored:
         return None

@@ -9,6 +9,9 @@ import AdminDashboard from "./pages/AdminDashboard";
 import DatasetManagement from "./pages/DatasetManagement";
 import DatasetDetail from "./pages/DatasetDetail";
 import ModelManagement from "./pages/ModelManagement";
+import Forecast from "./pages/Forecast";
+import ForecastResult from "./pages/ForecastResult";
+import ForecastHistory from "./pages/ForecastHistory";
 
 function Home() {
   const { user, loading } = useAuth();
@@ -28,6 +31,9 @@ export default function App() {
           <Route path="/register" element={<Register />} />
           <Route element={<ProtectedRoute />}>
             <Route path="/dashboard" element={<UserDashboard />} />
+            <Route path="/forecast" element={<Forecast />} />
+            <Route path="/forecasts" element={<ForecastHistory />} />
+            <Route path="/forecasts/:id" element={<ForecastResult />} />
           </Route>
           <Route element={<ProtectedRoute role="admin" />}>
             <Route path="/admin" element={<AdminDashboard />} />

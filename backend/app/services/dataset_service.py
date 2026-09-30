@@ -58,6 +58,14 @@ def _guard_no_active_run(db: Session, dataset: Dataset) -> None:
         raise HTTPException(status.HTTP_409_CONFLICT, "A training run is in progress for this dataset.")
 
 
+def _guard_not_published(dataset: Dataset) -> None:
+    if dataset.status == DatasetStatus.PUBLISHED:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "This dataset is published. Unpublish it before changing its configuration, re-validating, re-processing or deleting it.",
+        )
+
+
 def _remove_file(path: str | None) -> None:
     if path:
         Path(path).unlink(missing_ok=True)
@@ -125,6 +133,7 @@ def _sync_features(dataset: Dataset, exogenous: list[str]) -> None:
 
 
 def apply_config(db: Session, dataset: Dataset, cfg: DatasetConfigIn) -> Dataset:
+    _guard_not_published(dataset)
     _guard_no_active_run(db, dataset)
     columns = [c["name"] for c in (dataset.schema_profile or {}).get("columns", [])]
     referenced = cfg.timestamp_columns + [cfg.target_column] + cfg.exogenous_columns
@@ -190,6 +199,7 @@ def update_features(db: Session, dataset: Dataset, toggles: list[FeatureToggle])
 
 
 def run_validation(db: Session, dataset: Dataset) -> Dataset:
+    _guard_not_published(dataset)
     _guard_no_active_run(db, dataset)
     config = dataset.config
     if not config.get("timestamp_columns"):
@@ -223,6 +233,7 @@ def run_validation(db: Session, dataset: Dataset) -> Dataset:
 
 
 def run_processing(db: Session, dataset: Dataset) -> Dataset:
+    _guard_not_published(dataset)
     if dataset.status not in (DatasetStatus.VALIDATED, DatasetStatus.PROCESSED):
         raise HTTPException(status.HTTP_409_CONFLICT, "Only validated datasets can be processed. Validate the dataset first.")
     _guard_no_active_run(db, dataset)
@@ -243,6 +254,7 @@ def run_processing(db: Session, dataset: Dataset) -> Dataset:
 
 
 def delete_dataset(db: Session, dataset: Dataset) -> None:
+    _guard_not_published(dataset)
     _guard_no_active_run(db, dataset)
     settings = get_settings()
     _remove_file(dataset.file_path)

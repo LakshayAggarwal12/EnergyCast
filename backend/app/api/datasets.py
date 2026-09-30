@@ -4,6 +4,8 @@ from sqlalchemy.orm import Session
 from app.auth.deps import get_current_user, require_admin
 from app.database.models import ROLE_ADMIN, Dataset, DatasetStatus, User
 from app.database.session import get_db
+from app.schemas.forecast import AvailableDataset
+from app.services import publishing_service
 from app.schemas.dataset import DatasetConfigIn, DatasetDetail, DatasetSummary, FeatureOut, FeatureToggle
 from app.services import dataset_service as svc
 
@@ -12,10 +14,10 @@ admin_router = APIRouter(prefix="/api/admin/datasets", tags=["admin: datasets"])
 
 
 # ---- user / admin -------------------------------------------------------------------------------------
-@public_router.get("", response_model=list[DatasetSummary])
+@public_router.get("", response_model=list[AvailableDataset])
 def list_available_datasets(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Admins see every dataset; normal users only see datasets published for forecasting."""
-    return svc.list_datasets(db, None if user.role == ROLE_ADMIN else DatasetStatus.PUBLISHED)
+    """Admins see every dataset; normal users only see datasets with a published model."""
+    return publishing_service.available_datasets(db, user)
 
 
 @public_router.get("/{dataset_id}/features", response_model=list[FeatureOut])

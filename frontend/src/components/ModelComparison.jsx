@@ -4,7 +4,7 @@ import { fmtNum } from "../services/format";
 const th = "text-left font-medium text-muted px-3 py-2 whitespace-nowrap";
 const td = "px-3 py-2 tabular-nums whitespace-nowrap";
 
-export default function ModelComparison({ models, best }) {
+export default function ModelComparison({ models, best, onPublish, onUnpublish, busyId }) {
   if (!models?.length) return <p className="text-sm text-muted">No models trained yet.</p>;
   return (
     <div className="overflow-x-auto">
@@ -13,7 +13,7 @@ export default function ModelComparison({ models, best }) {
           <tr className="border-b border-line">
             <th className={th}>Model</th><th className={th}>Type</th><th className={th}>Status</th>
             <th className={th}>Validation MAE</th><th className={th}>Test MAE</th><th className={th}>Test RMSE</th>
-            <th className={th}>Test MAPE %</th><th className={th}>Train time (s)</th>
+            <th className={th}>Test MAPE %</th><th className={th}>Train time (s)</th>{onPublish && <th className={th} />}
           </tr>
         </thead>
         <tbody>
@@ -30,6 +30,12 @@ export default function ModelComparison({ models, best }) {
                 <td className={td}>{fmtNum(t?.rmse)}</td>
                 <td className={td} title={t && t.mape == null ? "undefined: actual values contain zeros" : undefined}>{fmtNum(t?.mape, 1)}</td>
                 <td className={td}>{fmtNum(m.training_seconds, 1)}</td>
+                {onPublish && (
+                  <td className={td}>
+                    {m.status === "trained" && <button className="text-accent hover:underline disabled:opacity-50" disabled={!!busyId} onClick={() => onPublish(m)}>{busyId === m.id ? "Publishing…" : "Publish"}</button>}
+                    {m.status === "published" && <button className="text-bad hover:underline disabled:opacity-50" disabled={!!busyId} onClick={() => onUnpublish(m)}>Unpublish</button>}
+                  </td>
+                )}
               </tr>
             );
           })}

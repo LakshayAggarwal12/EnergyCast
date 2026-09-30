@@ -5,8 +5,9 @@ from sqlalchemy.orm import Session
 from app.auth.deps import require_admin
 from app.database.models import TrainingRun, User
 from app.database.session import get_db
-from app.schemas.training import ModelComparison, TrainingRunDetail, TrainingRunOut, TrainRequest
-from app.services import dataset_service, training_service
+from app.schemas.dataset import DatasetSummary
+from app.schemas.training import ModelOut, ModelComparison, TrainingRunDetail, TrainingRunOut, TrainRequest
+from app.services import dataset_service, publishing_service, training_service
 
 router = APIRouter(prefix="/api/admin", tags=["admin: models"])
 
@@ -44,3 +45,16 @@ def get_run(run_id: int, _: User = Depends(require_admin), db: Session = Depends
     if run is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Training run not found.")
     return run
+
+
+@router.post("/models/{model_id}/publish", response_model=ModelOut)
+def publish_model(model_id: int, _: User = Depends(require_admin), db: Session = Depends(get_db)):
+    """Make this trained model the one users forecast with (replaces any previously published model).
+    A test forecast is run first; models that cannot forecast are refused."""
+    return publishing_service.publish_model(db, model_id)
+
+
+@router.post("/datasets/{dataset_id}/unpublish", response_model=DatasetSummary)
+def unpublish_dataset(dataset_id: int, _: User = Depends(require_admin), db: Session = Depends(get_db)):
+    """Withdraw the dataset from users. Existing forecast history is kept."""
+    return publishing_service.unpublish_dataset(db, dataset_id)

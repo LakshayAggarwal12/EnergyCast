@@ -46,7 +46,10 @@ class RunStatus:
 
 class ModelStatus:
     TRAINED = "trained"
+    PUBLISHED = "published"  # at most one per dataset; the model users forecast with
     FAILED = "failed"
+
+    USABLE = ("trained", "published")
 
 
 class User(Base):

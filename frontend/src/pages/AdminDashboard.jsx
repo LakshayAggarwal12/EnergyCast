@@ -24,7 +24,7 @@ export default function AdminDashboard() {
       <div className="grid gap-4 sm:grid-cols-4">
         <Stat label="Datasets" value={data.datasets_total} />
         <Stat label="Processed" value={s.processed || 0} />
-        <Stat label="Rejected" value={s.rejected || 0} />
+        <Stat label="Published" value={s.published || 0} />
         <Stat label="Trained models" value={data.trained_models} />
       </div>
       <Card title="Recent training runs" action={<Link className="text-sm text-accent hover:underline" to="/admin/datasets">Manage datasets</Link>}>

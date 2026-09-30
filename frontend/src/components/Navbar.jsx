@@ -22,6 +22,8 @@ export default function Navbar() {
               ) : (
                 <NavLink to="/dashboard" className={linkClass}>Dashboard</NavLink>
               )}
+              <NavLink to="/forecast" className={linkClass}>Forecast</NavLink>
+              <NavLink to="/forecasts" end className={linkClass}>History</NavLink>
             </nav>
           )}
         </div>

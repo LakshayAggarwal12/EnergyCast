@@ -11,3 +11,6 @@ export const fmtBytes = (n) => {
 
 export const fmtDate = (s) => (s ? String(s).replace("T", " ").slice(0, 19) : "");
 export const fmtInt = (n) => (n == null ? "" : Number(n).toLocaleString("en-US"));
+
+export const fmtStep = (minutes) => (minutes >= 1440 && minutes % 1440 === 0 ? `${minutes / 1440} d` : minutes % 60 === 0 ? `${minutes / 60} h` : `${minutes} min`);
+export const fmtHorizon = (steps, minutes) => fmtStep(steps * minutes);

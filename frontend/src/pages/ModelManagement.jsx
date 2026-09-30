@@ -23,6 +23,18 @@ export default function ModelManagement() {
   const active = run && (run.status === "queued" || run.status === "running");
   usePolling(load, active);
 
+  const [publishingId, setPublishingId] = useState(null);
+  const publish = async (m) => {
+    if (!window.confirm(`Publish "${m.model_name}"? Users will forecast with it, replacing any model published for this dataset.`)) return;
+    setError(""); setPublishingId(m.id);
+    try { await api.publishModel(m.id); await load(); } catch (e) { setError(e.message); } finally { setPublishingId(null); }
+  };
+  const unpublish = async () => {
+    if (!window.confirm("Unpublish this dataset? Users will no longer be able to create forecasts. Existing forecast history is kept.")) return;
+    setError("");
+    try { await api.unpublishDataset(Number(id)); await load(); } catch (e) { setError(e.message); }
+  };
+
   const start = async () => {
     setError(""); setBusy(true);
     try {
@@ -43,6 +55,13 @@ export default function ModelManagement() {
         <h1 className="text-xl font-semibold mt-1">Model training</h1>
       </div>
       {error && <Alert>{error}</Alert>}
+
+      {data.published_model && (
+        <Card title="Published for users" action={<Button variant="danger" onClick={unpublish}>Unpublish</Button>}>
+          <p className="text-sm">Users are forecasting with <b>{data.published_model.model_name}</b> (run v{data.published_model.version}). Test MAE {data.published_model.metrics?.test?.mae?.toFixed(3)}.</p>
+          <p className="text-xs text-muted mt-1">While published, the dataset's configuration is locked. You can still train new models and publish a better one.</p>
+        </Card>
+      )}
 
       <Card title="Train models" action={<Button onClick={start} disabled={busy || active || selected.length === 0}>{active ? "Training…" : busy ? "Starting…" : "Start training"}</Button>}>
         <div className="flex flex-wrap gap-4">{MODEL_NAMES.map((m) => (
@@ -77,7 +96,7 @@ export default function ModelManagement() {
         </div>
       )}
 
-      <Card title="Model comparison"><ModelComparison models={data.latest_models} best={data.best_on_validation} /></Card>
+      <Card title="Model comparison (latest run)"><ModelComparison models={data.latest_models} best={data.best_on_validation} onPublish={publish} onUnpublish={unpublish} busyId={publishingId} /></Card>
     </div>
   );
 }

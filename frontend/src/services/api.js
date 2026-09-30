@@ -71,4 +71,12 @@ export const api = {
   train: (datasetId, models) => request("/api/admin/models/train", { method: "POST", json: { dataset_id: datasetId, ...(models ? { models } : {}) } }),
   comparison: (datasetId) => request(`/api/admin/models/${datasetId}`),
   trainingRun: (runId) => request(`/api/admin/training-runs/${runId}`),
+  publishModel: (modelId) => request(`/api/admin/models/${modelId}/publish`, { method: "POST" }),
+  unpublishDataset: (datasetId) => request(`/api/admin/datasets/${datasetId}/unpublish`, { method: "POST" }),
+
+  availableDatasets: () => request("/api/datasets"),
+  forecastInfo: (datasetId) => request(`/api/datasets/${datasetId}/forecast-info`),
+  createForecast: (body) => request("/api/forecast", { method: "POST", json: body }),
+  listForecasts: (limit = 50, offset = 0) => request(`/api/forecasts?limit=${limit}&offset=${offset}`),
+  getForecast: (id) => request(`/api/forecasts/${id}`),
 };

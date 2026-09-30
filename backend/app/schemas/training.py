@@ -55,3 +55,4 @@ class ModelComparison(BaseModel):
     latest_run: TrainingRunOut | None
     latest_models: list[ModelOut]
     best_on_validation: dict[str, Any] | None
+    published_model: ModelOut | None = None

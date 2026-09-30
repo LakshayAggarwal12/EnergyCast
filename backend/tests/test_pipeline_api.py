@@ -6,41 +6,13 @@ import joblib
 import pandas as pd
 import pytest
 
+from tests.helpers import configure_from_profile, upload_csv
+
 EXO = ["Global_reactive_power", "Voltage", "Global_intensity", "Sub_metering_1", "Sub_metering_2", "Sub_metering_3"]
 
 
-def _upload(client, headers, path: Path, name="Household", filename=None):
-    with open(path, "rb") as fh:
-        return client.post(
-            "/api/admin/datasets", headers=headers,
-            files={"file": (filename or path.name, fh, "text/csv")},
-            data={"name": name, "energy_type": "electricity"},
-        )
-
-
-def _configure(client, headers, ds_id, profile, **overrides):
-    s = profile["suggested_config"]
-    body = {"timestamp_columns": s["timestamp_columns"], "datetime_format": s["datetime_format"],
-            "target_column": s["target_column"], "exogenous_columns": s["exogenous_columns"], "na_values": ["?"]}
-    body.update(overrides)
-    return client.put(f"/api/admin/datasets/{ds_id}", headers=headers, json=body)
-
-
-@pytest.fixture
-def processed_dataset(client, admin_headers, household_slice):
-    up = _upload(client, admin_headers, household_slice)
-    assert up.status_code == 201, up.text
-    ds = up.json()
-    assert _configure(client, admin_headers, ds["id"], ds["schema_profile"]).status_code == 200
-    v = client.post(f"/api/admin/datasets/{ds['id']}/validate", headers=admin_headers)
-    assert v.status_code == 200 and v.json()["status"] == "validated", v.text
-    p = client.post(f"/api/admin/datasets/{ds['id']}/process", headers=admin_headers)
-    assert p.status_code == 200 and p.json()["status"] == "processed", p.text
-    return p.json()
-
-
 def test_upload_inspects_real_schema(client, admin_headers, household_slice):
-    r = _upload(client, admin_headers, household_slice)
+    r = upload_csv(client, admin_headers, household_slice)
     assert r.status_code == 201
     d = r.json()
     prof = d["schema_profile"]
@@ -105,7 +77,7 @@ def _artifact_path(dataset_id, version, model):
 
 
 def test_train_requires_processed_dataset_and_valid_model_names(client, admin_headers, household_slice, processed_dataset):
-    up = _upload(client, admin_headers, household_slice, name="Second").json()
+    up = upload_csv(client, admin_headers, household_slice, name="Second").json()
     r = client.post("/api/admin/models/train", headers=admin_headers, json={"dataset_id": up["id"]})
     assert r.status_code == 409
     r = client.post("/api/admin/models/train", headers=admin_headers, json={"dataset_id": processed_dataset["id"], "models": ["nope"]})
@@ -114,7 +86,7 @@ def test_train_requires_processed_dataset_and_valid_model_names(client, admin_he
 
 
 def test_electricity_csv_without_timestamps_is_rejected(client, admin_headers, electricity_csv):
-    r = _upload(client, admin_headers, electricity_csv, name="Electricity")
+    r = upload_csv(client, admin_headers, electricity_csv, name="Electricity")
     assert r.status_code == 201
     d = r.json()
     assert d["schema_profile"]["csv"]["has_header"] is False
@@ -153,7 +125,7 @@ def test_config_change_invalidates_processed_state_and_delete_removes_files(clie
     from app.config import get_settings
     proc = get_settings().processed_dir / f"dataset_{ds['id']}.parquet"
     assert proc.exists()
-    r = _configure(client, admin_headers, ds["id"], ds["schema_profile"], exogenous_columns=["Voltage"])
+    r = configure_from_profile(client, admin_headers, ds["id"], ds["schema_profile"], exogenous_columns=["Voltage"])
     assert r.status_code == 200 and r.json()["status"] == "configured" and r.json()["validation_report"] is None
     assert not proc.exists()
     assert {f["name"] for f in r.json()["features"]} == {"calendar", "target_lags", "target_rolling", "Voltage"}
@@ -162,7 +134,7 @@ def test_config_change_invalidates_processed_state_and_delete_removes_files(clie
 
 
 def test_config_validation_errors(client, admin_headers, household_slice):
-    d = _upload(client, admin_headers, household_slice).json()
+    d = upload_csv(client, admin_headers, household_slice).json()
     base = {"timestamp_columns": ["Date", "Time"], "target_column": "Global_active_power"}
     assert client.put(f"/api/admin/datasets/{d['id']}", headers=admin_headers, json={**base, "target_column": "Nope"}).status_code == 422
     assert client.put(f"/api/admin/datasets/{d['id']}", headers=admin_headers, json={**base, "target_column": "Date"}).status_code == 422

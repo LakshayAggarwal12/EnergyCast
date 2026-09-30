@@ -42,6 +42,7 @@ def test_normal_user_gets_403_on_every_admin_endpoint(client, user_headers):
         ("put", "/api/admin/datasets/1"), ("delete", "/api/admin/datasets/1"), ("post", "/api/admin/datasets/1/validate"),
         ("post", "/api/admin/datasets/1/process"), ("post", "/api/admin/models/train"), ("get", "/api/admin/models/1"),
         ("get", "/api/admin/training-runs/1"), ("get", "/api/admin/overview"),
+        ("post", "/api/admin/models/1/publish"), ("post", "/api/admin/datasets/1/unpublish"),
     ]
     for method, url in calls:
         assert getattr(client, method)(url, headers=user_headers).status_code == 403, (method, url)

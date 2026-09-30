@@ -45,8 +45,9 @@ export default function DatasetDetail() {
   if (!ds || !form) return <div className="mx-auto max-w-6xl px-4 py-8">{error ? <Alert>{error}</Alert> : <p className="text-muted">Loading…</p>}</div>;
 
   const noTimestamp = (ds.schema_profile?.suggested_config?.timestamp_columns || []).length === 0;
-  const stepIndex = STEPS.indexOf(ds.status);
-  const canTrain = ds.status === "processed";
+  const published = ds.status === "published";
+  const stepIndex = published ? STEPS.length - 1 : STEPS.indexOf(ds.status);
+  const canTrain = ds.status === "processed" || published;
 
   const save = () => run("save", () => api.configureDataset(ds.id, {
     timestamp_columns: form.timestamp_columns,
@@ -83,6 +84,7 @@ export default function DatasetDetail() {
           ))}
         </ol>
       )}
+      {published && <Alert tone="warn">This dataset is published to users, so its configuration, validation and processing are locked. Unpublish it from the models page to change them.</Alert>}
       {error && <Alert>{error}</Alert>}
 
       <Card title="Detected columns">
@@ -97,7 +99,7 @@ export default function DatasetDetail() {
       </Card>
 
       {!noTimestamp && (
-        <Card title="Configuration" action={<Button onClick={save} disabled={!!busy || !form.timestamp_columns.length || !form.target_column}>{busy === "save" ? "Saving…" : "Save configuration"}</Button>}>
+        <Card title="Configuration" action={<Button onClick={save} disabled={!!busy || published || !form.timestamp_columns.length || !form.target_column}>{busy === "save" ? "Saving…" : "Save configuration"}</Button>}>
           <div className="grid gap-6 md:grid-cols-2">
             <div className="space-y-4">
               <Field label="Timestamp column(s)" hint="One combined column, or a date column followed by a time column.">
@@ -136,14 +138,14 @@ export default function DatasetDetail() {
 
       <Card title="Validation and processing" action={
         <div className="flex gap-2">
-          <Button variant="secondary" disabled={!!busy || ds.status === "uploaded" && !noTimestamp} onClick={() => run("validate", () => api.validateDataset(ds.id))}>{busy === "validate" ? "Validating…" : "Validate"}</Button>
-          <Button disabled={!!busy || !["validated", "processed"].includes(ds.status)} onClick={() => run("process", () => api.processDataset(ds.id))}>{busy === "process" ? "Processing…" : ds.status === "processed" ? "Process again" : "Process"}</Button>
+          <Button variant="secondary" disabled={!!busy || published || (ds.status === "uploaded" && !noTimestamp)} onClick={() => run("validate", () => api.validateDataset(ds.id))}>{busy === "validate" ? "Validating…" : "Validate"}</Button>
+          <Button disabled={!!busy || published || !["validated", "processed"].includes(ds.status)} onClick={() => run("process", () => api.processDataset(ds.id))}>{busy === "process" ? "Processing…" : ds.status === "processed" ? "Process again" : "Process"}</Button>
         </div>}>
         {!ds.validation_report ? <p className="text-sm text-muted">{ds.status === "uploaded" && !noTimestamp ? "Save the configuration, then validate." : "Run validation to check timestamps, data types, duplicates, gaps and data quality."}</p> : <ValidationReport report={ds.validation_report} />}
         {ds.preprocessing_report && <div className="mt-5"><div className="text-sm font-medium mb-2">Preprocessing</div><PreprocessingReport report={ds.preprocessing_report} /></div>}
       </Card>
 
-      <div className="flex justify-end"><Button variant="danger" onClick={remove} disabled={!!busy}>Delete dataset</Button></div>
+      <div className="flex justify-end"><Button variant="danger" onClick={remove} disabled={!!busy || published}>Delete dataset</Button></div>
     </div>
   );
 }

@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.api import admin, auth, datasets, models
+from app.api import admin, auth, datasets, forecasting, models
 from app.config import get_settings
 from app.database.base import Base
 from app.database.session import engine, get_db
@@ -37,6 +37,7 @@ def create_app() -> FastAPI:
     app.include_router(datasets.admin_router)
     app.include_router(models.router)
     app.include_router(admin.router)
+    app.include_router(forecasting.router)
 
     @app.get("/api/health", tags=["health"])
     def health(db: Session = Depends(get_db)):

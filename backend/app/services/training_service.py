@@ -61,7 +61,7 @@ def build_training_config(dataset: Dataset, models: list[str] | None) -> Trainin
 
 
 def create_run(db: Session, dataset: Dataset, user_id: int, models: list[str] | None) -> TrainingRun:
-    if dataset.status != DatasetStatus.PROCESSED or not dataset.processed_path or not Path(dataset.processed_path).exists():
+    if dataset.status not in (DatasetStatus.PROCESSED, DatasetStatus.PUBLISHED) or not dataset.processed_path or not Path(dataset.processed_path).exists():
         raise HTTPException(status.HTTP_409_CONFLICT, "The dataset must be validated and processed before training.")
     if db.scalar(select(TrainingRun.id).where(TrainingRun.dataset_id == dataset.id, TrainingRun.status.in_(RunStatus.ACTIVE)).limit(1)):
         raise HTTPException(status.HTTP_409_CONFLICT, "A training run is already in progress for this dataset.")
@@ -171,7 +171,9 @@ def model_comparison(db: Session, dataset_id: int) -> dict[str, Any]:
         return v if v is not None else float("inf")
 
     outs.sort(key=key)
+    published = db.scalar(select(ModelRecord).where(ModelRecord.dataset_id == dataset_id, ModelRecord.status == ModelStatus.PUBLISHED))
     return {
+        "published_model": ModelOut.model_validate(published).model_dump() if published else None,
         "dataset_id": dataset_id,
         "runs": [TrainingRunOut.model_validate(r).model_dump() for r in runs],
         "latest_run": TrainingRunOut.model_validate(latest).model_dump() if latest else None,

@@ -79,3 +79,24 @@ def electricity_csv() -> Path:
     if not ELECTRICITY_CSV.exists():
         pytest.skip(f"real Electricity CSV not found at {ELECTRICITY_CSV}")
     return ELECTRICITY_CSV
+
+
+@pytest.fixture
+def processed_dataset(client, admin_headers, household_slice):
+    from tests.helpers import configure_from_profile, upload_csv
+    up = upload_csv(client, admin_headers, household_slice)
+    assert up.status_code == 201, up.text
+    ds = up.json()
+    assert configure_from_profile(client, admin_headers, ds["id"], ds["schema_profile"]).status_code == 200
+    v = client.post(f"/api/admin/datasets/{ds['id']}/validate", headers=admin_headers)
+    assert v.status_code == 200 and v.json()["status"] == "validated", v.text
+    p = client.post(f"/api/admin/datasets/{ds['id']}/process", headers=admin_headers)
+    assert p.status_code == 200 and p.json()["status"] == "processed", p.text
+    return p.json()
+
+
+@pytest.fixture
+def second_user_headers(client):
+    r = client.post("/api/auth/register", json={"name": "Bo User", "email": "bo@example.com", "password": "bo-password-1"})
+    assert r.status_code == 201, r.text
+    return _login(client, "bo@example.com", "bo-password-1")
