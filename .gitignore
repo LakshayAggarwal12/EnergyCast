@@ -18,3 +18,5 @@ backend/models/*
 # node
 node_modules/
 frontend/dist/
+
+energicast_backup.dump
