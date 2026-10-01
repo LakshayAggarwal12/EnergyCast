@@ -207,38 +207,62 @@ def run_validation(db: Session, dataset: Dataset) -> Dataset:
     if dataset.id:
         dataset = db.get(Dataset, dataset.id) or dataset
     
-    _guard_not_published(dataset)
-    _guard_no_active_run(db, dataset)
-    config = dataset.config
-    if not config.get("timestamp_columns"):
-        # Not configured yet. If the upload inspection found usable timestamp + target columns, the admin must
-        # confirm them first. If it did not, the file cannot be configured meaningfully: reject it with the reasons.
-        suggested = (dataset.schema_profile or {}).get("suggested_config", {})
-        if suggested.get("timestamp_columns") and suggested.get("target_column"):
-            raise HTTPException(
-                status.HTTP_409_CONFLICT, "Configure the dataset (timestamp and target columns) before validating."
-            )
-        config = {**config, **{k: v for k, v in suggested.items() if k != "datetime_format"}}
-    download_file_from_db(db, "datasets", Path(dataset.file_path).name, dataset.file_path)
-    report = validate_dataset(Path(dataset.file_path), config)
-    derived = report.get("derived") or {}
-    dataset.validation_report = report
-    dataset.preprocessing_report = None
-    _remove_file(dataset.processed_path)
-    dataset.processed_path = None
-    if report["passed"]:
-        dataset.status = DatasetStatus.VALIDATED
-        dataset.config = {**dataset.config, "derived": derived}
-        dataset.frequency = derived.get("native_frequency")
-        dataset.row_count = derived.get("rows")
-        dataset.start_timestamp = pd.Timestamp(derived["start"]).to_pydatetime() if derived.get("start") else None
-        dataset.end_timestamp = pd.Timestamp(derived["end"]).to_pydatetime() if derived.get("end") else None
-    else:
+    try:
+        _guard_not_published(dataset)
+        _guard_no_active_run(db, dataset)
+        config = dataset.config
+        if not config.get("timestamp_columns"):
+            # Not configured yet. If the upload inspection found usable timestamp + target columns, the admin must
+            # confirm them first. If it did not, the file cannot be configured meaningfully: reject it with the reasons.
+            suggested = (dataset.schema_profile or {}).get("suggested_config", {})
+            if suggested.get("timestamp_columns") and suggested.get("target_column"):
+                raise HTTPException(
+                    status.HTTP_409_CONFLICT, "Configure the dataset (timestamp and target columns) before validating."
+                )
+            config = {**config, **{k: v for k, v in suggested.items() if k != "datetime_format"}}
+        
+        # Download file from database
+        file_path = Path(dataset.file_path)
+        if not file_path.exists():
+            download_file_from_db(db, "datasets", file_path.name, dataset.file_path)
+        
+        # Check if file exists after download attempt
+        if not file_path.exists():
+            raise FileNotFoundError(f"Dataset file not found: {dataset.file_path}")
+        
+        # Validate
+        report = validate_dataset(file_path, config)
+        derived = report.get("derived") or {}
+        dataset.validation_report = report
+        dataset.preprocessing_report = None
+        _remove_file(dataset.processed_path)
+        dataset.processed_path = None
+        if report["passed"]:
+            dataset.status = DatasetStatus.VALIDATED
+            dataset.config = {**dataset.config, "derived": derived}
+            dataset.frequency = derived.get("native_frequency")
+            dataset.row_count = derived.get("rows")
+            dataset.start_timestamp = pd.Timestamp(derived["start"]).to_pydatetime() if derived.get("start") else None
+            dataset.end_timestamp = pd.Timestamp(derived["end"]).to_pydatetime() if derived.get("end") else None
+        else:
+            dataset.status = DatasetStatus.REJECTED
+            dataset.config = {k: v for k, v in dataset.config.items() if k != "derived"}
+        db.commit()
+        db.refresh(dataset)
+        return dataset
+    except Exception as exc:
+        db.rollback()
+        # Update status to rejected with error
         dataset.status = DatasetStatus.REJECTED
-        dataset.config = {k: v for k, v in dataset.config.items() if k != "derived"}
-    db.commit()
-    db.refresh(dataset)
-    return dataset
+        dataset.validation_report = {
+            "passed": False,
+            "errors": [{"code": "validation_error", "message": str(exc)}],
+            "warnings": [],
+            "checks": {},
+            "derived": {},
+        }
+        db.commit()
+        raise
 
 
 def run_processing(db: Session, dataset: Dataset) -> Dataset:
@@ -247,26 +271,38 @@ def run_processing(db: Session, dataset: Dataset) -> Dataset:
     if dataset.id:
         dataset = db.get(Dataset, dataset.id) or dataset
     
-    _guard_not_published(dataset)
-    if dataset.status not in (DatasetStatus.VALIDATED, DatasetStatus.PROCESSED, DatasetStatus.PROCESSING):
-        raise HTTPException(status.HTTP_409_CONFLICT, "Only validated datasets can be processed. Validate the dataset first.")
-    _guard_no_active_run(db, dataset)
-    settings = get_settings()
-    settings.ensure_storage_dirs()
-    download_file_from_db(db, "datasets", Path(dataset.file_path).name, dataset.file_path)
     try:
+        _guard_not_published(dataset)
+        if dataset.status not in (DatasetStatus.VALIDATED, DatasetStatus.PROCESSED, DatasetStatus.PROCESSING):
+            raise HTTPException(status.HTTP_409_CONFLICT, "Only validated datasets can be processed. Validate the dataset first.")
+        _guard_no_active_run(db, dataset)
+        settings = get_settings()
+        settings.ensure_storage_dirs()
+        
+        # Download file from database
+        if not Path(dataset.file_path).exists():
+            download_file_from_db(db, "datasets", Path(dataset.file_path).name, dataset.file_path)
+        
         frame, report = preprocess_dataset(Path(dataset.file_path), dataset.config)
-    except (PreprocessingError, CsvFormatError, ValueError) as exc:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, f"Preprocessing failed: {exc}")
-    out_path = settings.processed_dir / f"dataset_{dataset.id}.parquet"
-    save_processed(frame, out_path)
-    dataset.processed_path = str(out_path)
-    dataset.preprocessing_report = report
-    dataset.status = DatasetStatus.PROCESSED
-    db.commit()
-    upload_file_to_db(db, "datasets", out_path)
-    db.refresh(dataset)
-    return dataset
+        out_path = settings.processed_dir / f"dataset_{dataset.id}.parquet"
+        save_processed(frame, out_path)
+        dataset.processed_path = str(out_path)
+        dataset.preprocessing_report = report
+        dataset.status = DatasetStatus.PROCESSED
+        db.commit()
+        upload_file_to_db(db, "datasets", out_path)
+        db.refresh(dataset)
+        return dataset
+    except Exception as exc:
+        db.rollback()
+        # Update status to validated (not processed) with error
+        dataset.status = DatasetStatus.VALIDATED
+        dataset.preprocessing_report = {
+            "error": str(exc),
+            "passed": False,
+        }
+        db.commit()
+        raise
 
 
 def delete_dataset(db: Session, dataset: Dataset) -> None:
