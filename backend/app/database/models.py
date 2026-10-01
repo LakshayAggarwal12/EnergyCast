@@ -12,6 +12,7 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Integer,
+    LargeBinary,
     String,
     Text,
     UniqueConstraint,
@@ -179,3 +180,13 @@ class ForecastValue(Base):
     timestamp: Mapped[datetime] = mapped_column(DateTime)
     predicted_value: Mapped[float] = mapped_column(Float)
     actual_value: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+
+class FileObject(Base):
+    __tablename__ = "file_objects"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    bucket_name: Mapped[str] = mapped_column(String(50), index=True)
+    file_name: Mapped[str] = mapped_column(String(500), index=True, unique=True)
+    data: Mapped[bytes] = mapped_column(LargeBinary)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

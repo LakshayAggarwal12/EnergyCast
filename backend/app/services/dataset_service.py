@@ -22,6 +22,7 @@ from app.database.models import Dataset, DatasetStatus, Feature, RunStatus, Trai
 from app.features.engineering import default_lags_and_windows
 from app.schemas.dataset import DatasetConfigIn, FeatureToggle
 from app.utils.frequency import FrequencyError, freq_to_minutes, minutes_to_alias
+from app.services.storage import upload_file_to_db, download_file_from_db, delete_file_from_db
 
 UPLOAD_CHUNK = 1024 * 1024
 ENGINEERED_FEATURES = [
@@ -114,6 +115,7 @@ def register_upload(db: Session, admin: User, upload: UploadFile, name: str, ene
     )
     db.add(dataset)
     db.commit()
+    upload_file_to_db(db, "datasets", dest)
     db.refresh(dataset)
     return dataset
 
@@ -212,6 +214,7 @@ def run_validation(db: Session, dataset: Dataset) -> Dataset:
                 status.HTTP_409_CONFLICT, "Configure the dataset (timestamp and target columns) before validating."
             )
         config = {**config, **{k: v for k, v in suggested.items() if k != "datetime_format"}}
+    download_file_from_db(db, "datasets", Path(dataset.file_path).name, dataset.file_path)
     report = validate_dataset(Path(dataset.file_path), config)
     derived = report.get("derived") or {}
     dataset.validation_report = report
@@ -240,6 +243,7 @@ def run_processing(db: Session, dataset: Dataset) -> Dataset:
     _guard_no_active_run(db, dataset)
     settings = get_settings()
     settings.ensure_storage_dirs()
+    download_file_from_db(db, "datasets", Path(dataset.file_path).name, dataset.file_path)
     try:
         frame, report = preprocess_dataset(Path(dataset.file_path), dataset.config)
     except (PreprocessingError, CsvFormatError, ValueError) as exc:
@@ -250,6 +254,7 @@ def run_processing(db: Session, dataset: Dataset) -> Dataset:
     dataset.preprocessing_report = report
     dataset.status = DatasetStatus.PROCESSED
     db.commit()
+    upload_file_to_db(db, "datasets", out_path)
     db.refresh(dataset)
     return dataset
 
@@ -258,8 +263,16 @@ def delete_dataset(db: Session, dataset: Dataset) -> None:
     _guard_not_published(dataset)
     _guard_no_active_run(db, dataset)
     settings = get_settings()
+    delete_file_from_db(db, "datasets", Path(dataset.file_path).name)
     _remove_file(dataset.file_path)
-    _remove_file(dataset.processed_path)
+    if dataset.processed_path:
+        delete_file_from_db(db, "datasets", Path(dataset.processed_path).name)
+        _remove_file(dataset.processed_path)
+    
+    for m in dataset.models:
+        unique_name = f"dataset_{m.dataset_id}_v{m.version}_{m.model_name}.joblib"
+        delete_file_from_db(db, "models", unique_name)
+        
     shutil.rmtree(settings.MODEL_STORAGE_PATH / f"dataset_{dataset.id}", ignore_errors=True)
     db.delete(dataset)
     db.commit()
@@ -279,9 +292,10 @@ def feature_defaults_for(dataset: Dataset) -> tuple[list[int], list[int]]:
     return default_lags_and_windows(derived["modeling_minutes"], horizon)
 
 
-def compute_eda(dataset: Dataset) -> dict:
+def compute_eda(db: Session, dataset: Dataset) -> dict:
     if dataset.status not in (DatasetStatus.PROCESSED, DatasetStatus.PUBLISHED) or not dataset.processed_path:
         raise HTTPException(status.HTTP_409_CONFLICT, "Process the dataset before viewing exploratory analysis.")
+    download_file_from_db(db, "datasets", Path(dataset.processed_path).name, dataset.processed_path)
     try:
         frame = load_processed(Path(dataset.processed_path))
     except Exception:

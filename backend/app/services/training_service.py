@@ -24,6 +24,7 @@ from app.database.session import SessionLocal
 from app.features.engineering import FeaturePlan, default_lags_and_windows
 from app.ml.training import TrainingConfig, available_specs, train_and_evaluate
 from app.utils.frequency import default_horizon
+from app.services.storage import upload_file_to_db, download_file_from_db
 
 
 def _utcnow() -> datetime:
@@ -117,6 +118,7 @@ def execute_run(run_id: int) -> None:
         db.commit()
         try:
             cfg = TrainingConfig.from_dict(run.config)
+            download_file_from_db(db, "datasets", Path(dataset.processed_path).name, dataset.processed_path)
             frame = load_processed(Path(dataset.processed_path))
             output = train_and_evaluate(frame, cfg, progress=lambda msg: _set_stage(run_id, msg))
 
@@ -127,6 +129,9 @@ def execute_run(run_id: int) -> None:
                 artifact_path = None
                 if outcome.status == ModelStatus.TRAINED:
                     artifact_path = _save_artifact(artifact_dir, outcome, cfg, output.feature_columns, trained_range)
+                    # Upload model artifact
+                    unique_name = f"dataset_{dataset.id}_v{run.version}_{outcome.name}.joblib"
+                    upload_file_to_db(db, "models", artifact_path, unique_name)
                 db.add(ModelRecord(
                     dataset_id=dataset.id, run_id=run.id, model_name=outcome.name, category=outcome.category,
                     version=run.version, metrics=outcome.metrics, params=outcome.params, artifact_path=artifact_path,
