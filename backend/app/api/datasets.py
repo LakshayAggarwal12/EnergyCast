@@ -97,3 +97,17 @@ def dataset_eda(dataset_id: int, _: User = Depends(require_admin), db: Session =
 def delete_dataset(dataset_id: int, _: User = Depends(require_admin), db: Session = Depends(get_db)):
     svc.delete_dataset(db, svc.get_dataset_or_404(db, dataset_id))
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@admin_router.post("/{dataset_id}/reset", response_model=DatasetDetail)
+def reset_dataset(dataset_id: int, _: User = Depends(require_admin), db: Session = Depends(get_db)):
+    """Reset a stuck dataset from validating/processing back to configured state."""
+    dataset = svc.get_dataset_or_404(db, dataset_id)
+    if dataset.status not in ("validating", "processing"):
+        raise HTTPException(status.HTTP_409_CONFLICT, "Only datasets in validating/processing state can be reset.")
+    dataset.status = DatasetStatus.CONFIGURED
+    dataset.validation_report = None
+    dataset.preprocessing_report = None
+    db.commit()
+    db.refresh(dataset)
+    return dataset

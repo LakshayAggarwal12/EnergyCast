@@ -81,4 +81,5 @@ export const api = {
   createForecast: (body) => request("/api/forecast", { method: "POST", json: body }),
   listForecasts: (limit = 50, offset = 0) => request(`/api/forecasts?limit=${limit}&offset=${offset}`),
   getForecast: (id) => request(`/api/forecasts/${id}`),
+  resetDataset: (id) => request(`/api/admin/datasets/${id}/reset`, { method: "POST" }),
 };

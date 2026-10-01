@@ -286,19 +286,36 @@ export default function DatasetDetail() {
         title="Quality gates"
         action={
           <div className="flex gap-2">
-            <Button
-              variant="secondary"
-              disabled={!!busy || published || (ds.status === "uploaded" && !noTimestamp)}
-              onClick={() => run("validate", () => api.validateDataset(ds.id))}
-            >
-              {busy === "validate" ? "Validating large file..." : "Validate"}
-            </Button>
-            <Button
-              disabled={!!busy || published || !["validated", "processed"].includes(ds.status)}
-              onClick={() => run("process", () => api.processDataset(ds.id))}
-            >
-              {busy === "process" ? "Processing large file..." : "Process"}
-            </Button>
+            {ds.status === "validating" || ds.status === "processing" ? (
+              <Button
+                variant="danger"
+                onClick={async () => {
+                  if (!window.confirm("Reset this dataset? This will cancel the current operation.")) return;
+                  try {
+                    await api.resetDataset(ds.id);
+                    apply(await api.getDataset(id));
+                  } catch (e) { setError(e.message); }
+                }}
+              >
+                Reset
+              </Button>
+            ) : (
+              <>
+                <Button
+                  variant="secondary"
+                  disabled={!!busy || published || (ds.status === "uploaded" && !noTimestamp)}
+                  onClick={() => run("validate", () => api.validateDataset(ds.id))}
+                >
+                  {busy === "validate" ? "Validating large file..." : "Validate"}
+                </Button>
+                <Button
+                  disabled={!!busy || published || !["validated", "processed"].includes(ds.status)}
+                  onClick={() => run("process", () => api.processDataset(ds.id))}
+                >
+                  {busy === "process" ? "Processing large file..." : "Process"}
+                </Button>
+              </>
+            )}
           </div>
         }
       >
