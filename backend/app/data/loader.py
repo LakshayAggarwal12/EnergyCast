@@ -90,27 +90,59 @@ def read_csv_frame(
 ) -> pd.DataFrame:
     """Read the CSV as-is. Timestamp columns stay as text; numeric columns are inferred by Pandas."""
     meta = meta or sniff_csv(path)
-    with open(path, "rb") as fh:
-        if nrows is None:
-            data = fh.read()
-        else:
-            data = b"".join(itertools.islice(fh, nrows + (1 if meta.has_header else 0)))
-    if meta.wrapped_in_quotes:
-        data = data.replace(b'"', b"")
+    
     try:
-        df = pd.read_csv(
-            io.BytesIO(data),
-            sep=meta.delimiter,
-            header=0 if meta.has_header else None,
-            names=None if meta.has_header else meta.columns,
-            na_values=list(na_values),
-            encoding="utf-8-sig",
-            low_memory=False,
-        )
+        # For large files, read directly from file instead of loading into memory first
+        if nrows is None and path.stat().st_size > 50 * 1024 * 1024:  # > 50MB
+            # Read directly from file for large datasets
+            if meta.wrapped_in_quotes:
+                # Need to process quotes for wrapped files
+                with open(path, "rb") as fh:
+                    data = fh.read()
+                data = data.replace(b'"', b"")
+                df = pd.read_csv(
+                    io.BytesIO(data),
+                    sep=meta.delimiter,
+                    header=0 if meta.has_header else None,
+                    names=None if meta.has_header else meta.columns,
+                    na_values=list(na_values),
+                    encoding="utf-8-sig",
+                    low_memory=False,
+                )
+            else:
+                # Read directly from file path (more efficient)
+                df = pd.read_csv(
+                    path,
+                    sep=meta.delimiter,
+                    header=0 if meta.has_header else None,
+                    names=None if meta.has_header else meta.columns,
+                    na_values=list(na_values),
+                    encoding="utf-8-sig",
+                    low_memory=False,
+                )
+        else:
+            # Original behavior for small files
+            with open(path, "rb") as fh:
+                if nrows is None:
+                    data = fh.read()
+                else:
+                    data = b"".join(itertools.islice(fh, nrows + (1 if meta.has_header else 0)))
+            if meta.wrapped_in_quotes:
+                data = data.replace(b'"', b"")
+            df = pd.read_csv(
+                io.BytesIO(data),
+                sep=meta.delimiter,
+                header=0 if meta.has_header else None,
+                names=None if meta.has_header else meta.columns,
+                na_values=list(na_values),
+                encoding="utf-8-sig",
+                low_memory=False,
+            )
+        
+        df.columns = [str(c).strip() for c in df.columns]
+        return df
     except (pd.errors.ParserError, pd.errors.EmptyDataError, UnicodeDecodeError) as exc:
         raise CsvFormatError(f"The CSV could not be parsed: {exc}") from exc
-    df.columns = [str(c).strip() for c in df.columns]
-    return df
 
 
 def count_data_rows(path: Path, meta: CsvMeta) -> int:
