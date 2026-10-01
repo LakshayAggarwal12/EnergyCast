@@ -7,17 +7,17 @@ import {
 } from "recharts";
 
 const CHART_THEME = {
-  grid: "#2d313a",
-  text: "#8b949e",
-  accent: "#14b8a6",
-  bg: "#090a0f",
+  grid: "rgba(30,44,34,0.7)",
+  text: "rgba(107,125,108,0.8)",
+  accent: "#7ab87a",
+  bg: "#070b09",
 };
 
 const ChartPanel = ({ title, children, description }) => (
-  <div className="bg-surface border border-line rounded-lg overflow-hidden">
-    <div className="px-4 py-3 border-b border-line">
-      <h3 className="text-xs font-semibold text-ink">{title}</h3>
-      {description && <p className="text-[10px] text-muted mt-0.5">{description}</p>}
+  <div style={{ border: "1px solid var(--color-line)", overflow: "hidden" }}>
+    <div className="px-4 py-3" style={{ borderBottom: "1px solid var(--color-line)", background: "var(--color-surface)" }}>
+      <h3 className="font-mono text-[10px] uppercase tracking-wider" style={{ color: "var(--color-ink)" }}>{title}</h3>
+      {description && <p className="text-[10px] mt-0.5" style={{ color: "var(--color-muted)" }}>{description}</p>}
     </div>
     <div className="p-4" style={{ background: CHART_THEME.bg }}>
       {children}
@@ -26,10 +26,10 @@ const ChartPanel = ({ title, children, description }) => (
 );
 
 const StatBox = ({ label, value, sub }) => (
-  <div className="bg-surface border border-line rounded-lg px-4 py-3 hover:border-accent/40 transition-colors">
-    <div className="text-[10px] uppercase tracking-widest text-muted font-medium">{label}</div>
-    <div className="text-xl font-bold text-ink mt-0.5 tabular-nums">{value}</div>
-    {sub && <div className="text-[10px] text-muted mt-0.5">{sub}</div>}
+  <div className="px-4 py-3 transition-all" style={{ border: "1px solid var(--color-line)", background: "var(--color-surface)" }}>
+    <div className="font-mono text-[9px] uppercase tracking-[0.22em] mb-1" style={{ color: "var(--color-muted)" }}>{label}</div>
+    <div className="text-xl font-semibold tabular-nums" style={{ color: "var(--color-ink)" }}>{value}</div>
+    {sub && <div className="font-mono text-[9px] mt-0.5" style={{ color: "var(--color-muted)" }}>{sub}</div>}
   </div>
 );
 
@@ -47,9 +47,13 @@ export default function EdaCharts({ datasetId }) {
   }, [datasetId]);
 
   if (loading) return (
-    <div className="flex items-center gap-3 py-8 text-muted text-sm">
-      <div className="w-4 h-4 border-2 border-accent border-t-transparent rounded-full animate-spin" />
-      Running EDA analysis…
+    <div className="flex items-center gap-3 py-8 text-sm" style={{ color: "var(--color-muted)" }}>
+      <div className="flex gap-1">
+        <span className="load-dot h-1.5 w-1.5 rounded-full" style={{ background: "var(--color-now)", display: "inline-block" }} />
+        <span className="load-dot h-1.5 w-1.5 rounded-full" style={{ background: "var(--color-now)", display: "inline-block" }} />
+        <span className="load-dot h-1.5 w-1.5 rounded-full" style={{ background: "var(--color-now)", display: "inline-block" }} />
+      </div>
+      <span className="font-mono text-[10px] uppercase tracking-wider">Running EDA analysis…</span>
     </div>
   );
   if (error) return <Alert tone="bad">Failed to load EDA: {error}</Alert>;
@@ -61,27 +65,27 @@ export default function EdaCharts({ datasetId }) {
     : [];
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="space-y-6">
       {/* Summary stats */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <StatBox
           label="Observations"
-          value={eda.n_observed?.toLocaleString() ?? "—"}
+          value={eda.n_observed?.toLocaleString() ?? "-"}
           sub="data points"
         />
         <StatBox
           label="Mean"
-          value={dist?.mean != null ? dist.mean.toFixed(2) : "—"}
-          sub={`σ = ${dist?.std?.toFixed(2) ?? "—"}`}
+          value={dist?.mean != null ? dist.mean.toFixed(2) : "-"}
+          sub={`σ = ${dist?.std?.toFixed(2) ?? "-"}`}
         />
         <StatBox
           label="Range"
-          value={dist?.min != null ? `${dist.min.toFixed(0)}–${dist.max?.toFixed(0)}` : "—"}
+          value={dist?.min != null ? `${dist.min.toFixed(0)}–${dist.max?.toFixed(0)}` : "-"}
           sub="min → max"
         />
         <StatBox
           label="Trend Slope"
-          value={eda.trend?.slope_per_step != null ? eda.trend.slope_per_step.toFixed(4) : "—"}
+          value={eda.trend?.slope_per_step != null ? eda.trend.slope_per_step.toFixed(4) : "-"}
           sub="per step"
         />
       </div>

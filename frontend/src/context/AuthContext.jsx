@@ -30,7 +30,16 @@ export function AuthProvider({ children }) {
     return login(email, password);
   }, [login]);
 
-  const value = useMemo(() => ({ user, loading, login, register, logout, isAdmin: user?.role === "admin" }), [user, loading, login, register, logout]);
+  const updateProfile = useCallback(async (body) => {
+    const next = await api.updateProfile(body);
+    setUser(next);
+    return next;
+  }, []);
+
+  const value = useMemo(
+    () => ({ user, loading, login, register, logout, updateProfile, isAdmin: user?.role === "admin" }),
+    [user, loading, login, register, logout, updateProfile],
+  );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 

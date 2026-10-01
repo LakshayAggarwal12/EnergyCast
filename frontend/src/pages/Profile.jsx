@@ -1,53 +1,122 @@
-import { useAuth } from "../context/AuthContext";
-import { Card, Button } from "../components/ui";
-import { User, Mail, Shield, Key } from "lucide-react";
 import { useState } from "react";
+import { motion } from "framer-motion";
+import { useAuth } from "../context/AuthContext";
+import { Alert, Button, Field, Panel, inputClass } from "../components/ui";
+import { usePrefersReducedMotion } from "../hooks/usePrefersReducedMotion";
 
 export default function Profile() {
-  const { user, logout } = useAuth();
-  const [isHovered, setIsHovered] = useState(false);
+  const { user, updateProfile, logout } = useAuth();
+  const reduced = usePrefersReducedMotion();
+  const [name, setName]       = useState(user?.name     || "");
+  const [current, setCurrent] = useState("");
+  const [next, setNext]       = useState("");
+  const [error, setError]     = useState("");
+  const [ok, setOk]           = useState("");
+  const [busy, setBusy]       = useState(false);
 
   if (!user) return null;
 
+  const save = async (e) => {
+    e.preventDefault();
+    setError(""); setOk(""); setBusy(true);
+    try {
+      const body = {};
+      if (name.trim() && name.trim() !== user.name) body.name = name.trim();
+      if (next) { body.new_password = next; body.current_password = current; }
+      if (!Object.keys(body).length) {
+        setError("Change your name or password first.");
+        setBusy(false);
+        return;
+      }
+      await updateProfile(body);
+      setOk("Profile updated.");
+      setCurrent(""); setNext("");
+    } catch (err) { setError(err.message); }
+    finally { setBusy(false); }
+  };
+
   return (
-    <div className="mx-auto max-w-2xl px-4 py-8 animate-fade-in">
-      <h1 className="text-2xl font-bold mb-6 text-foreground flex items-center gap-2">
-        <User className="text-accent w-6 h-6" /> User Profile
-      </h1>
-
-      <Card className="hover:shadow-lg transition-shadow duration-300">
-        <div className="flex items-center gap-6 mb-8 pb-8 border-b border-line relative overflow-hidden">
-          <div 
-            className="w-20 h-20 rounded-full bg-accent/10 flex items-center justify-center text-accent text-3xl font-bold transition-transform duration-300"
-            style={{ transform: isHovered ? "scale(1.05)" : "scale(1)" }}
-            onMouseEnter={() => setIsHovered(true)}
-            onMouseLeave={() => setIsHovered(false)}
-          >
-            {user.name?.charAt(0).toUpperCase()}
-          </div>
-          <div>
-            <h2 className="text-xl font-semibold">{user.name}</h2>
-            <div className="flex items-center gap-2 text-muted mt-1 text-sm">
-              <Mail className="w-4 h-4" /> {user.email}
-            </div>
-            <div className="flex items-center gap-2 text-muted mt-1 text-sm">
-              <Shield className="w-4 h-4" /> Role: <span className="uppercase text-accent font-medium">{user.role}</span>
-            </div>
-          </div>
+    <motion.div
+      initial={reduced ? false : { opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.4 }}
+      className="max-w-lg space-y-6"
+    >
+      {/* Header */}
+      <div>
+        <div
+          className="font-mono text-[9px] uppercase tracking-[0.28em] mb-1"
+          style={{ color: "var(--color-now)" }}
+        >
+          Identity
         </div>
+        <h1
+          className="text-[28px] font-semibold tracking-tight"
+          style={{ color: "var(--color-ink)" }}
+        >
+          {user.name}
+        </h1>
+        <p className="font-mono text-[10px] mt-1" style={{ color: "var(--color-muted)" }}>
+          {user.email}
+          <span
+            className="ml-2 border px-1.5 py-0.5 uppercase tracking-wider text-[9px]"
+            style={{
+              color: user.role === "admin" ? "var(--color-now)" : "var(--color-future)",
+              borderColor: user.role === "admin" ? "rgba(200,168,108,0.3)" : "rgba(122,184,122,0.3)",
+              background: user.role === "admin" ? "rgba(200,168,108,0.06)" : "rgba(122,184,122,0.06)",
+            }}
+          >
+            {user.role}
+          </span>
+        </p>
+      </div>
 
-        <div className="space-y-4">
-          <h3 className="text-lg font-medium flex items-center gap-2">
-            <Key className="w-5 h-5 text-muted" /> Account Security
-          </h3>
-          <p className="text-sm text-muted">Your account is secured with email and password authentication.</p>
-          <div className="pt-4">
-            <Button variant="danger" onClick={logout} className="transition-transform hover:scale-105">
+      {/* Form */}
+      <Panel kicker="Account" title="Update credentials">
+        <form onSubmit={save} className="space-y-4">
+          <Field label="Display name">
+            <input
+              className={inputClass}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              id="profile-name"
+            />
+          </Field>
+          <Field label="Current password">
+            <input
+              className={inputClass}
+              type="password"
+              value={current}
+              onChange={(e) => setCurrent(e.target.value)}
+              autoComplete="current-password"
+              id="profile-current-password"
+            />
+          </Field>
+          <Field label="New password" hint="Leave blank to keep the current password.">
+            <input
+              className={inputClass}
+              type="password"
+              minLength={8}
+              value={next}
+              onChange={(e) => setNext(e.target.value)}
+              autoComplete="new-password"
+              id="profile-new-password"
+            />
+          </Field>
+
+          {error && <Alert>{error}</Alert>}
+          {ok    && <Alert tone="ok">{ok}</Alert>}
+
+          <div className="flex gap-3 pt-1">
+            <Button type="submit" disabled={busy}>
+              {busy ? "Saving…" : "Save changes"}
+            </Button>
+            <Button type="button" variant="danger" onClick={logout}>
               Sign out
             </Button>
           </div>
-        </div>
-      </Card>
-    </div>
+        </form>
+      </Panel>
+    </motion.div>
   );
 }

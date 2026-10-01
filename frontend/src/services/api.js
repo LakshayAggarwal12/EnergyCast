@@ -51,6 +51,7 @@ export const api = {
   login: (email, password) => request("/api/auth/login", { method: "POST", json: { email, password }, auth: false }),
   register: (name, email, password) => request("/api/auth/register", { method: "POST", json: { name, email, password }, auth: false }),
   me: () => request("/api/auth/me"),
+  updateProfile: (body) => request("/api/auth/me", { method: "PUT", json: body }),
 
   overview: () => request("/api/admin/overview"),
   listDatasets: () => request("/api/admin/datasets"),

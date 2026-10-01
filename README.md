@@ -494,7 +494,7 @@ This avoids training/inference feature mismatch.
 
 **Sprint duration: 1 week**
 
-## Sprint 1 — Foundation + Dataset Pipeline
+## Sprint 1 - Foundation + Dataset Pipeline
 
 ### Objective
 
@@ -531,7 +531,7 @@ Clean Dataset
 
 ---
 
-## Sprint 2 — Feature Engineering + ML
+## Sprint 2 - Feature Engineering + ML
 
 ### Objective
 
@@ -575,7 +575,7 @@ Stored Model
 
 ---
 
-## Sprint 3 — Application + Admin/User System
+## Sprint 3 - Application + Admin/User System
 
 ### Objective
 
@@ -631,7 +631,7 @@ Forecast
 
 ---
 
-## Sprint 4 — Dashboard + Testing + Deployment
+## Sprint 4 - Dashboard + Testing + Deployment
 
 ### Objective
 
@@ -664,7 +664,7 @@ A deployed, tested, presentation-ready EnergiCast system.
 
 # 9. Step-by-Step Implementation Plan
 
-## Step 1 — Repository and Project Initialization
+## Step 1 - Repository and Project Initialization
 
 Recommended root:
 
@@ -681,7 +681,7 @@ EnergiCast/
 
 Do not commit secrets or production datasets unnecessarily.
 
-## Step 2 — Backend Setup
+## Step 2 - Backend Setup
 
 Set up:
 
@@ -699,7 +699,7 @@ Set up:
 
 Keep functionality modular instead of putting the complete backend into `main.py`.
 
-## Step 3 — Frontend Setup
+## Step 3 - Frontend Setup
 
 Initialize:
 
@@ -720,7 +720,7 @@ frontend/src/
 └── routes/
 ```
 
-## Step 4 — Database Setup
+## Step 4 - Database Setup
 
 Create PostgreSQL database and initial entities:
 
@@ -735,7 +735,7 @@ forecast_values
 
 Use foreign keys and suitable indexes.
 
-## Step 5 — Authentication and RBAC
+## Step 5 - Authentication and RBAC
 
 Implement:
 
@@ -760,7 +760,7 @@ ADMIN
 USER
 ```
 
-## Step 6 — Dataset Ingestion
+## Step 6 - Dataset Ingestion
 
 Admin uploads a CSV.
 
@@ -774,7 +774,7 @@ Backend:
 6. Inspects columns.
 7. Creates dataset metadata.
 
-## Step 7 — Dataset Validation
+## Step 7 - Dataset Validation
 
 Check:
 
@@ -803,7 +803,7 @@ Dataset Validation
        └── Sufficient Data ✓
 ```
 
-## Step 8 — Data Cleaning
+## Step 8 - Data Cleaning
 
 Possible operations:
 
@@ -817,7 +817,7 @@ Possible operations:
 
 Cleaning rules must be explicit and reproducible.
 
-## Step 9 — Time-Series EDA
+## Step 9 - Time-Series EDA
 
 Analyze:
 
@@ -839,7 +839,7 @@ Historical Energy
 Energy Consumption
 ```
 
-## Step 10 — Feature Engineering
+## Step 10 - Feature Engineering
 
 Potential features:
 
@@ -872,7 +872,7 @@ Actual windows must match dataset frequency.
 
 No feature may contain information from the future relative to the prediction timestamp. This prevents data leakage.
 
-## Step 11 — Train/Validation/Test Split
+## Step 11 - Train/Validation/Test Split
 
 For time-series data:
 
@@ -896,7 +896,7 @@ An initial configuration may be:
 
 Make the split configurable.
 
-## Step 12 — Baseline Models
+## Step 12 - Baseline Models
 
 ### Naive
 
@@ -912,7 +912,7 @@ Forecast(t) = Actual(t - seasonal_period)
 
 Baselines provide a reference against which ML models can be judged.
 
-## Step 13 — Forecasting Models
+## Step 13 - Forecasting Models
 
 Initial candidates:
 
@@ -934,7 +934,7 @@ For nonlinear relationships between engineered features and energy consumption.
 
 Not every model needs to be applied to every dataset.
 
-## Step 14 — Model Evaluation
+## Step 14 - Model Evaluation
 
 ### MAE
 
@@ -960,7 +960,7 @@ MAPE = mean(|actual - predicted| / |actual|) × 100
 
 Use only when actual values make percentage error meaningful.
 
-## Step 15 — Model Selection
+## Step 15 - Model Selection
 
 Compare candidate models on the validation set.
 
@@ -979,7 +979,7 @@ Status
 
 The test set must remain unseen during tuning/model selection.
 
-## Step 16 — Model Registry
+## Step 16 - Model Registry
 
 Suggested lifecycle:
 
@@ -995,7 +995,7 @@ PUBLISHED
 
 A failed training run must not overwrite an existing published model.
 
-## Step 17 — Forecast Inference
+## Step 17 - Forecast Inference
 
 When a User requests a forecast:
 
@@ -1017,7 +1017,7 @@ Return Results
 
 The inference pipeline must use compatible preprocessing and feature definitions from training.
 
-## Step 18 — Frontend Integration
+## Step 18 - Frontend Integration
 
 Connect:
 
@@ -1033,7 +1033,7 @@ ML / Database
 
 Implement loading, success, empty, and error states.
 
-## Step 19 — Testing
+## Step 19 - Testing
 
 Test:
 
@@ -1047,7 +1047,7 @@ Test:
 - Forecast generation
 - End-to-end Admin → User workflow
 
-## Step 20 — Deployment and Final Validation
+## Step 20 - Deployment and Final Validation
 
 Before final submission:
 

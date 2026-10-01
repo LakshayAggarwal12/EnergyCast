@@ -2,7 +2,10 @@ import { Alert } from "./ui";
 import { fmtInt } from "../services/format";
 
 const KV = ({ k, v }) => (
-  <div className="flex justify-between gap-4 py-1 border-b border-line last:border-0"><dt className="text-muted">{k}</dt><dd className="text-right tabular-nums">{v}</dd></div>
+  <div className="flex justify-between gap-4 py-2" style={{ borderBottom: "1px solid var(--color-line)" }}>
+    <dt className="font-mono text-[10px]" style={{ color: "var(--color-muted)" }}>{k}</dt>
+    <dd className="text-right tabular-nums text-sm" style={{ color: "var(--color-ink)" }}>{v}</dd>
+  </div>
 );
 
 export function ValidationReport({ report }) {
@@ -14,7 +17,7 @@ export function ValidationReport({ report }) {
       <Alert tone={report.passed ? "ok" : "bad"}>{report.passed ? "Validation passed." : "Validation failed. The dataset was rejected."}</Alert>
       {report.errors?.map((e, i) => <Alert key={`e${i}`} tone="bad"><b>{e.code}</b>: {e.message}</Alert>)}
       {report.warnings?.map((w, i) => <Alert key={`w${i}`} tone="warn"><b>{w.code}</b>: {w.message}</Alert>)}
-      <dl className="text-sm rounded-md border border-line px-4 py-2">
+      <dl className="px-4 py-2" style={{ border: "1px solid var(--color-line)", background: "var(--color-surface)" }}>
         {c.rows != null && <KV k="Rows" v={fmtInt(c.rows)} />}
         {c.header_present != null && <KV k="Header row" v={c.header_present ? "yes" : "no"} />}
         {c.timestamp && <KV k="Timestamp" v={`${c.timestamp.columns.join(" + ")} (${c.timestamp.format}), ${c.timestamp.unparseable} unparseable`} />}
@@ -33,7 +36,7 @@ export function ValidationReport({ report }) {
 export function PreprocessingReport({ report }) {
   if (!report) return null;
   return (
-    <dl className="text-sm rounded-md border border-line px-4 py-2">
+    <dl className="px-4 py-2" style={{ border: "1px solid var(--color-line)", background: "var(--color-surface)" }}>
       <KV k="Raw rows" v={fmtInt(report.rows_raw)} />
       <KV k="Modeling frequency" v={`${report.modeling_frequency} (from ${report.native_frequency})`} />
       <KV k="Resampling" v={report.resampling} />

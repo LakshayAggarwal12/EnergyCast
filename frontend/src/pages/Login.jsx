@@ -1,12 +1,15 @@
 import { useState } from "react";
 import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
+import { motion } from "framer-motion";
 import { useAuth } from "../context/AuthContext";
 import { Alert, Button, Field, inputClass } from "../components/ui";
+import { usePrefersReducedMotion } from "../hooks/usePrefersReducedMotion";
 
 export default function Login() {
   const { user, login } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const reduced = usePrefersReducedMotion();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -19,101 +22,138 @@ export default function Login() {
     setError(""); setBusy(true);
     try {
       const u = await login(email, password);
-      navigate(location.state?.from?.pathname || (u.role === "admin" ? "/admin" : "/dashboard"), { replace: true });
+      navigate(
+        location.state?.from?.pathname || (u.role === "admin" ? "/admin" : "/dashboard"),
+        { replace: true }
+      );
     } catch (err) {
       setError(err.message);
-    } finally { setBusy(false); }
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center px-4 bg-bg">
-      {/* Subtle technical grid background */}
+    <div
+      className="workstation flex min-h-screen flex-col items-center justify-center px-4"
+      style={{ position: "relative", overflow: "hidden" }}
+    >
+      {/* Background temporal timeline */}
       <div
-        className="fixed inset-0 pointer-events-none"
         style={{
-          backgroundImage: `
-            linear-gradient(rgba(45,49,58,0.4) 1px, transparent 1px),
-            linear-gradient(90deg, rgba(45,49,58,0.4) 1px, transparent 1px)
-          `,
-          backgroundSize: "40px 40px",
-          maskImage: "radial-gradient(ellipse 70% 60% at 50% 50%, black 0%, transparent 100%)",
+          position: "absolute",
+          top: "50%",
+          left: 0,
+          right: 0,
+          height: "1px",
+          background: "linear-gradient(90deg, transparent, var(--color-past) 25%, var(--color-now) 50%, var(--color-future) 75%, transparent)",
+          opacity: 0.2,
+          transform: "translateY(-50%)",
         }}
       />
 
-      <div className="relative w-full max-w-sm animate-fade-in">
-        {/* Brand header */}
-        <div className="text-center mb-8">
-          <div className="flex items-center justify-center gap-2 mb-3">
-            <svg className="w-8 h-8 text-accent" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M13 3L4 14h7l-1 7 9-11h-7l1-7z" />
-            </svg>
-            <span className="text-2xl font-bold tracking-tight text-ink">
-              Energi<span className="text-accent">Cast</span>
-            </span>
-          </div>
-          <p className="text-sm text-muted">Energy Intelligence Platform</p>
+      <motion.div
+        initial={reduced ? false : { opacity: 0, y: 24 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.45, ease: "easeOut" }}
+        style={{
+          width: "100%",
+          maxWidth: 420,
+          border: "1px solid var(--color-line)",
+          background: "var(--color-surface)",
+          padding: "40px 36px",
+          position: "relative",
+          zIndex: 1,
+        }}
+      >
+        {/* Corner accent */}
+        <div style={{
+          position: "absolute", top: 0, left: 0,
+          width: 40, height: 40,
+          borderTop: "2px solid var(--color-now)",
+          borderLeft: "2px solid var(--color-now)",
+          opacity: 0.6,
+        }} />
+        <div style={{
+          position: "absolute", bottom: 0, right: 0,
+          width: 40, height: 40,
+          borderBottom: "2px solid var(--color-future)",
+          borderRight: "2px solid var(--color-future)",
+          opacity: 0.4,
+        }} />
+
+        {/* Temporal axis */}
+        <div className="axis-rail mb-8">
+          <span className="zone-past">Past</span>
+          <span className="now" style={{ color: "var(--color-now)" }}>Now</span>
+          <span className="zone-future text-right">Future</span>
         </div>
 
-        {/* Login card */}
-        <div className="bg-surface border border-line rounded-xl p-8 shadow-2xl">
-          <h1 className="text-base font-semibold text-ink mb-6">Sign in to your workspace</h1>
-
-          <form onSubmit={submit} className="space-y-5">
-            <Field label="Email address">
-              <input
-                className={inputClass}
-                type="email"
-                autoComplete="email"
-                placeholder="analyst@company.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-              />
-            </Field>
-
-            <Field label="Password">
-              <input
-                className={inputClass}
-                type="password"
-                autoComplete="current-password"
-                placeholder="••••••••"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-              />
-            </Field>
-
-            {error && <Alert>{error}</Alert>}
-
-            <Button type="submit" disabled={busy} className="w-full flex items-center justify-center gap-2">
-              {busy ? (
-                <>
-                  <div className="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
-                  Signing in…
-                </>
-              ) : (
-                <>
-                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M13 3L4 14h7l-1 7 9-11h-7l1-7z" />
-                  </svg>
-                  Sign in
-                </>
-              )}
-            </Button>
-
-            <p className="text-sm text-muted text-center">
-              No account?{" "}
-              <Link className="text-accent hover:text-accent-strong transition-colors" to="/register">
-                Create one
-              </Link>
-            </p>
-          </form>
-        </div>
-
-        <p className="text-center text-[10px] text-muted/50 mt-6 uppercase tracking-widest">
-          Energy Forecasting Intelligence
+        {/* Brand */}
+        <h1
+          className="text-[26px] font-semibold tracking-tight"
+          style={{ color: "var(--color-ink)" }}
+        >
+          Energi<span style={{ color: "var(--color-now)" }}>Cast</span>
+        </h1>
+        <p
+          className="mt-1 font-mono text-[9px] uppercase tracking-[0.24em]"
+          style={{ color: "var(--color-muted)" }}
+        >
+          Energy Forecasting Workstation
         </p>
-      </div>
+
+        <form onSubmit={submit} className="mt-8 space-y-4">
+          <Field label="Email">
+            <input
+              className={inputClass}
+              type="email"
+              autoComplete="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+              id="login-email"
+              placeholder="you@example.com"
+            />
+          </Field>
+          <Field label="Password">
+            <input
+              className={inputClass}
+              type="password"
+              autoComplete="current-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              id="login-password"
+            />
+          </Field>
+
+          {error && <Alert>{error}</Alert>}
+
+          <Button type="submit" disabled={busy} className="w-full mt-2">
+            {busy ? "Authenticating…" : "Enter workstation"}
+          </Button>
+
+          <p className="text-sm pt-1" style={{ color: "var(--color-muted)" }}>
+            No account?{" "}
+            <Link
+              to="/register"
+              style={{ color: "var(--color-now)" }}
+              className="hover:opacity-80 transition-opacity"
+            >
+              Register
+            </Link>
+          </p>
+        </form>
+      </motion.div>
+
+      {/* Version label */}
+      <p
+        className="absolute bottom-6 font-mono text-[9px] uppercase tracking-[0.22em]"
+        style={{ color: "var(--color-muted)", opacity: 0.4 }}
+      >
+        EnergiCast · Energy Intelligence Platform
+      </p>
     </div>
   );
 }

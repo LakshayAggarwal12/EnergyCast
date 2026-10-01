@@ -1,42 +1,13 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { motion } from "framer-motion";
 import { api } from "../services/api";
-import { Alert, StatusBadge } from "../components/ui";
+import { Alert, LoadingDots, MetricTile, StatusBadge } from "../components/ui";
 import { fmtDate } from "../services/format";
-
-const StatCard = ({ label, value, sub, accent = false }) => (
-  <div className={`bg-surface border rounded-lg px-5 py-4 space-y-1 transition-all duration-200 hover:border-accent/40 ${accent ? "border-accent/30" : "border-line"}`}>
-    <div className="text-[11px] uppercase tracking-widest text-muted font-medium">{label}</div>
-    <div className={`text-3xl font-bold tabular-nums tracking-tight ${accent ? "text-accent" : "text-ink"}`}>
-      {value ?? "—"}
-    </div>
-    {sub && <div className="text-xs text-muted">{sub}</div>}
-  </div>
-);
-
-const RunRow = ({ r }) => (
-  <li className="py-3 flex items-center justify-between gap-4 group">
-    <div className="flex items-center gap-3 min-w-0">
-      <div className={`w-1.5 h-8 rounded-full flex-shrink-0 ${
-        r.status === "completed" ? "bg-ok" :
-        r.status === "running" ? "bg-warn animate-pulse" :
-        r.status === "failed" ? "bg-bad" : "bg-muted"
-      }`} />
-      <div className="min-w-0">
-        <Link
-          to={`/admin/datasets/${r.dataset_id}/models`}
-          className="text-sm font-medium text-ink hover:text-accent transition-colors truncate block"
-        >
-          Dataset {r.dataset_id} — Run v{r.version}
-        </Link>
-        <div className="text-xs text-muted font-mono">{fmtDate(r.created_at)}</div>
-      </div>
-    </div>
-    <StatusBadge status={r.status} />
-  </li>
-);
+import { usePrefersReducedMotion } from "../hooks/usePrefersReducedMotion";
 
 export default function AdminDashboard() {
+  const reduced = usePrefersReducedMotion();
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
 
@@ -44,118 +15,166 @@ export default function AdminDashboard() {
     api.overview().then(setData).catch((e) => setError(e.message));
   }, []);
 
-  if (error) return (
-    <div className="mx-auto max-w-7xl px-6 py-10">
-      <Alert>{error}</Alert>
-    </div>
-  );
-
-  if (!data) return (
-    <div className="mx-auto max-w-7xl px-6 py-10 flex items-center gap-3 text-muted">
-      <div className="w-4 h-4 border-2 border-accent border-t-transparent rounded-full animate-spin" />
-      Loading system overview…
-    </div>
-  );
+  if (error) return <Alert>{error}</Alert>;
+  if (!data) return <LoadingDots label="Loading control room" />;
 
   const s = data.datasets_by_status || {};
 
   return (
-    <div className="mx-auto max-w-7xl px-6 py-8 space-y-8 animate-fade-in">
-
+    <div className="space-y-8">
       {/* Header */}
-      <div className="flex items-start justify-between flex-wrap gap-4">
+      <motion.div
+        initial={reduced ? false : { opacity: 0, y: 16 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4 }}
+        className="flex flex-wrap items-end justify-between gap-4"
+      >
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-ink">
+          <div
+            className="font-mono text-[9px] uppercase tracking-[0.28em] mb-1"
+            style={{ color: "var(--color-now)" }}
+          >
             Control Room
+          </div>
+          <h1
+            className="text-[28px] font-semibold tracking-tight"
+            style={{ color: "var(--color-ink)" }}
+          >
+            Dataset pipeline
           </h1>
-          <p className="text-sm text-muted mt-0.5">System-wide status for datasets, models, and training runs.</p>
+          <p className="mt-2 text-sm" style={{ color: "var(--color-muted)" }}>
+            All numbers are live from the backend. No values are fabricated.
+          </p>
         </div>
         <Link
           to="/admin/datasets"
-          className="flex items-center gap-2 px-4 py-2 bg-accent hover:bg-accent-strong text-white text-sm font-medium rounded-md transition-all duration-200 active:scale-95"
+          className="font-mono text-[10px] uppercase tracking-wider px-5 py-2.5 transition-opacity hover:opacity-80"
+          style={{ background: "var(--color-future)", color: "#081108", fontWeight: 600 }}
         >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-          </svg>
-          Manage Datasets
+          Ingest CSV →
         </Link>
-      </div>
+      </motion.div>
 
-      {/* Stat Grid */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="Total Datasets" value={data.datasets_total} sub="all states" accent />
-        <StatCard label="Processed" value={s.processed ?? 0} sub="ready for training" />
-        <StatCard label="Published" value={s.published ?? 0} sub="available to users" />
-        <StatCard label="Trained Models" value={data.trained_models} sub="across all runs" />
-      </div>
+      {/* Stats */}
+      <motion.div
+        initial={reduced ? false : { opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, delay: 0.08 }}
+        className="grid gap-3 sm:grid-cols-4"
+      >
+        <MetricTile kicker="Total datasets"   value={String(data.datasets_total)} glow />
+        <MetricTile kicker="Processed"        value={String(s.processed || 0)} />
+        <MetricTile kicker="Published"        value={String(s.published  || 0)} />
+        <MetricTile kicker="Trained models"   value={String(data.trained_models)} />
+      </motion.div>
 
       {/* Pipeline status bar */}
-      {data.datasets_total > 0 && (
-        <div className="bg-surface border border-line rounded-lg px-5 py-4 space-y-3">
-          <div className="flex justify-between items-center">
-            <span className="text-xs uppercase tracking-widest text-muted font-medium">Dataset Pipeline</span>
-            <span className="text-xs text-muted">{data.datasets_total} total</span>
-          </div>
-          <div className="flex h-2 rounded-full overflow-hidden gap-0.5">
-            {[
-              { key: "uploaded", color: "bg-muted", label: "Uploaded" },
-              { key: "configured", color: "bg-[#3b82f6]", label: "Configured" },
-              { key: "validated", color: "bg-warn", label: "Validated" },
-              { key: "processed", color: "bg-ok", label: "Processed" },
-              { key: "published", color: "bg-accent", label: "Published" },
-              { key: "rejected", color: "bg-bad", label: "Rejected" },
-            ].map(({ key, color }) => {
-              const count = s[key] ?? 0;
-              const pct = (count / data.datasets_total) * 100;
-              return pct > 0 ? (
-                <div
-                  key={key}
-                  className={`${color} rounded-sm transition-all duration-500`}
-                  style={{ width: `${pct}%` }}
-                  title={`${key}: ${count}`}
-                />
-              ) : null;
-            })}
-          </div>
-          <div className="flex flex-wrap gap-3">
-            {[
-              { key: "uploaded", color: "bg-muted", label: "Uploaded" },
-              { key: "configured", color: "bg-[#3b82f6]", label: "Configured" },
-              { key: "validated", color: "bg-warn", label: "Validated" },
-              { key: "processed", color: "bg-ok", label: "Processed" },
-              { key: "published", color: "bg-accent", label: "Published" },
-              { key: "rejected", color: "bg-bad", label: "Rejected" },
-            ].filter(({ key }) => (s[key] ?? 0) > 0).map(({ key, color, label }) => (
-              <div key={key} className="flex items-center gap-1.5 text-xs text-muted">
-                <div className={`w-2 h-2 rounded-full ${color}`} />
-                {label}: {s[key]}
+      <motion.div
+        initial={reduced ? false : { opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.4, delay: 0.14 }}
+      >
+        <div
+          className="font-mono text-[9px] uppercase tracking-wider mb-3"
+          style={{ color: "var(--color-muted)" }}
+        >
+          Pipeline overview
+        </div>
+        <div
+          className="grid sm:grid-cols-5 border"
+          style={{ borderColor: "var(--color-line)" }}
+        >
+          {[
+            { key: "uploaded",   label: "Ingested",    count: s.uploaded   || 0 },
+            { key: "validated",  label: "Validated",   count: s.validated  || 0 },
+            { key: "processed",  label: "Processed",   count: s.processed  || 0 },
+            { key: "published",  label: "Published",   count: s.published  || 0 },
+            { key: "trained",    label: "Models",      count: data.trained_models || 0 },
+          ].map((item, i) => (
+            <div
+              key={item.key}
+              className="px-4 py-4"
+              style={{
+                borderRight: i < 4 ? "1px solid var(--color-line)" : "none",
+                background: item.count > 0 ? "rgba(122,184,122,0.03)" : "var(--color-surface)",
+              }}
+            >
+              <div
+                className="font-mono text-[9px] uppercase tracking-wider mb-2"
+                style={{ color: "var(--color-muted)" }}
+              >
+                {String(i + 1).padStart(2, "0")} · {item.label}
               </div>
-            ))}
-          </div>
+              <div
+                className="text-[22px] font-semibold"
+                style={{ color: item.count > 0 ? "var(--color-future)" : "var(--color-muted)" }}
+              >
+                {item.count}
+              </div>
+            </div>
+          ))}
         </div>
-      )}
+      </motion.div>
 
-      {/* Training Runs */}
-      <div className="bg-surface border border-line rounded-lg overflow-hidden">
-        <div className="flex items-center justify-between px-5 py-3 border-b border-line">
-          <h2 className="text-sm font-semibold text-ink">Recent Training Runs</h2>
-          <Link className="text-xs text-accent hover:text-accent-strong transition-colors" to="/admin/datasets">
-            View all →
-          </Link>
+      {/* Recent training runs */}
+      <motion.div
+        initial={reduced ? false : { opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, delay: 0.2 }}
+      >
+        <div
+          className="font-mono text-[9px] uppercase tracking-wider mb-3"
+          style={{ color: "var(--color-muted)" }}
+        >
+          Recent training runs
         </div>
-        <div className="px-5">
+        <div style={{ border: "1px solid var(--color-line)", background: "var(--color-surface)" }}>
           {data.recent_runs.length === 0 ? (
-            <div className="py-12 text-center">
-              <div className="text-muted text-sm">No training runs yet.</div>
-              <div className="text-xs text-muted/60 mt-1">Upload and configure a dataset to start training.</div>
+            <div className="px-4 py-6 text-sm" style={{ color: "var(--color-muted)" }}>
+              No training runs yet.
             </div>
           ) : (
-            <ul className="divide-y divide-line">
-              {data.recent_runs.map((r) => <RunRow key={r.id} r={r} />)}
-            </ul>
+            <table className="w-full data-table">
+              <thead>
+                <tr>
+                  <th className="text-left">Dataset</th>
+                  <th className="text-left">Version</th>
+                  <th className="text-left hidden sm:table-cell">Started</th>
+                  <th className="text-left">Status</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {data.recent_runs.map((r, i) => (
+                  <motion.tr
+                    key={r.id}
+                    initial={reduced ? false : { opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ duration: 0.25, delay: i * 0.04 }}
+                    style={{ borderTop: "1px solid var(--color-line)" }}
+                  >
+                    <td style={{ color: "var(--color-ink)" }}>Dataset {r.dataset_id}</td>
+                    <td className="font-mono text-[11px]" style={{ color: "var(--color-muted)" }}>v{r.version}</td>
+                    <td className="hidden sm:table-cell font-mono text-[11px]" style={{ color: "var(--color-muted)" }}>
+                      {fmtDate(r.created_at)}
+                    </td>
+                    <td><StatusBadge status={r.status} /></td>
+                    <td className="text-right">
+                      <Link
+                        to={`/admin/datasets/${r.dataset_id}/models`}
+                        className="font-mono text-[9px] uppercase tracking-wider transition-opacity hover:opacity-70"
+                        style={{ color: "var(--color-now)" }}
+                      >
+                        View →
+                      </Link>
+                    </td>
+                  </motion.tr>
+                ))}
+              </tbody>
+            </table>
           )}
         </div>
-      </div>
+      </motion.div>
     </div>
   );
 }
