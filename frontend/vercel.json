@@ -4,12 +4,6 @@
   "outputDirectory": "dist",
   "installCommand": "npm install",
   "framework": "vite",
-  "env": {
-    "VITE_API_URL": {
-      "description": "Backend API URL",
-      "value": "https://energycast.onrender.com"
-    }
-  },
   "rewrites": [
     {
       "source": "/(.*)",
