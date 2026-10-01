@@ -68,7 +68,7 @@ export default function DatasetDetail() {
             setError(e.message);
             setBusy("");
           }
-        }, 2000);
+        }, 5000); // Poll every 5 seconds for large files
         pollIntervalRef.current = interval;
       } else {
         // For sync operations
@@ -291,13 +291,13 @@ export default function DatasetDetail() {
               disabled={!!busy || published || (ds.status === "uploaded" && !noTimestamp)}
               onClick={() => run("validate", () => api.validateDataset(ds.id))}
             >
-              {busy === "validate" ? "Validating…" : "Validate"}
+              {busy === "validate" ? "Validating large file..." : "Validate"}
             </Button>
             <Button
               disabled={!!busy || published || !["validated", "processed"].includes(ds.status)}
               onClick={() => run("process", () => api.processDataset(ds.id))}
             >
-              {busy === "process" ? "Processing…" : "Process"}
+              {busy === "process" ? "Processing large file..." : "Process"}
             </Button>
           </div>
         }

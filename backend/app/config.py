@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     DATA_STORAGE_PATH: Path = Path("./data")
     CORS_ORIGINS: str = "http://localhost:5173"
     MAX_UPLOAD_MB: int = 500
+    VALIDATION_TIMEOUT_SECONDS: int = 600  # 10 minutes for validation
+    PROCESSING_TIMEOUT_SECONDS: int = 600  # 10 minutes for processing
 
     @field_validator("JWT_SECRET")
     @classmethod

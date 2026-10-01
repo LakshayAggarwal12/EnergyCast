@@ -249,6 +249,11 @@ def run_validation(db: Session, dataset: Dataset) -> Dataset:
             dataset.config = {k: v for k, v in dataset.config.items() if k != "derived"}
         db.commit()
         db.refresh(dataset)
+        
+        # Clean up downloaded file to save space
+        if file_path.exists():
+            file_path.unlink(missing_ok=True)
+        
         return dataset
     except Exception as exc:
         db.rollback()
@@ -280,10 +285,11 @@ def run_processing(db: Session, dataset: Dataset) -> Dataset:
         settings.ensure_storage_dirs()
         
         # Download file from database
-        if not Path(dataset.file_path).exists():
-            download_file_from_db(db, "datasets", Path(dataset.file_path).name, dataset.file_path)
+        file_path = Path(dataset.file_path)
+        if not file_path.exists():
+            download_file_from_db(db, "datasets", file_path.name, dataset.file_path)
         
-        frame, report = preprocess_dataset(Path(dataset.file_path), dataset.config)
+        frame, report = preprocess_dataset(file_path, dataset.config)
         out_path = settings.processed_dir / f"dataset_{dataset.id}.parquet"
         save_processed(frame, out_path)
         dataset.processed_path = str(out_path)
@@ -292,6 +298,11 @@ def run_processing(db: Session, dataset: Dataset) -> Dataset:
         db.commit()
         upload_file_to_db(db, "datasets", out_path)
         db.refresh(dataset)
+        
+        # Clean up downloaded file to save space
+        if file_path.exists():
+            file_path.unlink(missing_ok=True)
+        
         return dataset
     except Exception as exc:
         db.rollback()
