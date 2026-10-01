@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { motion } from "framer-motion";
 import { api } from "../services/api";
@@ -32,10 +32,12 @@ export default function DatasetDetail() {
   const [form, setForm] = useState(null);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
+  const pollIntervalRef = useRef(null);
 
   const apply = useCallback((d) => { setDs(d); setForm(initialForm(d)); }, []);
   useEffect(() => {
     api.getDataset(id).then(apply).catch((e) => setError(e.message));
+    return () => { if (pollIntervalRef.current) clearInterval(pollIntervalRef.current); };
   }, [id, apply]);
 
   const columns    = ds?.schema_profile?.columns || [];
@@ -44,7 +46,39 @@ export default function DatasetDetail() {
 
   const run = async (label, fn) => {
     setError(""); setBusy(label);
-    try { apply(await fn()); } catch (e) { setError(e.message); } finally { setBusy(""); }
+    try {
+      const result = await fn();
+      // For async operations (validate/process), poll for status
+      if (label === "validate" || label === "process") {
+        apply(result); // Apply initial response
+        const interval = setInterval(async () => {
+          try {
+            const updated = await api.getDataset(id);
+            apply(updated);
+            // Check if operation completed (stopped being in progress)
+            if (label === "validate" && updated.status !== "validating") {
+              clearInterval(interval);
+              setBusy("");
+            } else if (label === "process" && updated.status !== "processing") {
+              clearInterval(interval);
+              setBusy("");
+            }
+          } catch (e) {
+            clearInterval(interval);
+            setError(e.message);
+            setBusy("");
+          }
+        }, 2000);
+        pollIntervalRef.current = interval;
+      } else {
+        // For sync operations
+        apply(result);
+        setBusy("");
+      }
+    } catch (e) {
+      setError(e.message);
+      setBusy("");
+    }
   };
 
   if (!ds || !form) {

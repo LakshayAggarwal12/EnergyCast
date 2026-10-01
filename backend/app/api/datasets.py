@@ -61,14 +61,30 @@ def set_features(dataset_id: int, body: list[FeatureToggle], _: User = Depends(r
     return svc.update_features(db, svc.get_dataset_or_404(db, dataset_id), body)
 
 
-@admin_router.post("/{dataset_id}/validate", response_model=DatasetDetail)
-def validate_dataset(dataset_id: int, _: User = Depends(require_admin), db: Session = Depends(get_db)):
-    return svc.run_validation(db, svc.get_dataset_or_404(db, dataset_id))
+@admin_router.post("/{dataset_id}/validate", response_model=DatasetDetail, status_code=status.HTTP_202_ACCEPTED)
+def validate_dataset(dataset_id: int, background: BackgroundTasks, _: User = Depends(require_admin), db: Session = Depends(get_db)):
+    """Validate dataset in background to avoid timeout on large files. Poll GET /api/admin/datasets/{id} for status."""
+    dataset = svc.get_dataset_or_404(db, dataset_id)
+    if dataset.status in (DatasetStatus.VALIDATING, DatasetStatus.PROCESSING):
+        raise HTTPException(status.HTTP_409_CONFLICT, "This dataset is currently being validated or processed. Please wait for the operation to complete.")
+    dataset.status = DatasetStatus.VALIDATING  # Set to validating state
+    db.commit()
+    background.add_task(svc.run_validation, db, dataset)
+    db.refresh(dataset)
+    return dataset
 
 
-@admin_router.post("/{dataset_id}/process", response_model=DatasetDetail)
-def process_dataset(dataset_id: int, _: User = Depends(require_admin), db: Session = Depends(get_db)):
-    return svc.run_processing(db, svc.get_dataset_or_404(db, dataset_id))
+@admin_router.post("/{dataset_id}/process", response_model=DatasetDetail, status_code=status.HTTP_202_ACCEPTED)
+def process_dataset(dataset_id: int, background: BackgroundTasks, _: User = Depends(require_admin), db: Session = Depends(get_db)):
+    """Process dataset in background to avoid timeout on large files. Poll GET /api/admin/datasets/{id} for status."""
+    dataset = svc.get_dataset_or_404(db, dataset_id)
+    if dataset.status in (DatasetStatus.VALIDATING, DatasetStatus.PROCESSING):
+        raise HTTPException(status.HTTP_409_CONFLICT, "This dataset is currently being validated or processed. Please wait for the operation to complete.")
+    dataset.status = DatasetStatus.PROCESSING  # Set to processing state
+    db.commit()
+    background.add_task(svc.run_processing, db, dataset)
+    db.refresh(dataset)
+    return dataset
 
 
 @admin_router.get("/{dataset_id}/eda")

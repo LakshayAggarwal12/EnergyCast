@@ -124,7 +124,9 @@ export const inputClass =
 const STATUS_TONE = {
   uploaded:   "info",
   configured: "info",
-  validated:  "warn",
+  validating: "warn",
+  validated:  "ok",
+  processing: "warn",
   processed:  "ok",
   published:  "ok",
   rejected:   "bad",

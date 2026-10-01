@@ -30,8 +30,10 @@ ROLE_USER = "user"
 class DatasetStatus:
     UPLOADED = "uploaded"      # stored + schema inspected, not yet configured
     CONFIGURED = "configured"  # admin chose timestamp/target/features
+    VALIDATING = "validating"  # validation in progress (background task)
     VALIDATED = "validated"    # passed validation
     REJECTED = "rejected"      # failed validation (see validation_report)
+    PROCESSING = "processing"  # preprocessing in progress (background task)
     PROCESSED = "processed"    # cleaned + resampled, ready for training
     PUBLISHED = "published"    # reserved for the next phase (model publication)
 

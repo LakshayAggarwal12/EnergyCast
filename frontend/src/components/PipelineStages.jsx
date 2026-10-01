@@ -4,7 +4,9 @@ import { usePrefersReducedMotion } from "../hooks/usePrefersReducedMotion";
 const STAGES = [
   { key: "uploaded",   label: "Drop dataset",        icon: "↓" },
   { key: "configured", label: "Configure",            icon: "⚙" },
+  { key: "validating", label: "Validating...",       icon: "⏳" },
   { key: "validated",  label: "Validated",            icon: "✓" },
+  { key: "processing", label: "Processing...",        icon: "⏳" },
   { key: "processed",  label: "Ready for training",  icon: "◈" },
   { key: "published",  label: "Published",            icon: "★" },
 ];
@@ -21,7 +23,7 @@ export default function PipelineStages({ status, rejected }) {
         {STAGES.map((s, i) => {
           const done    = publishedAll ? true : idx > i;
           const current = s.key === status && !rejected;
-          const failed  = rejected && s.key === "validated";
+          const failed  = rejected && (s.key === "validated" || s.key === "validating");
 
           const stageColor = failed   ? "var(--color-bad)"
             : current ? "var(--color-now)"

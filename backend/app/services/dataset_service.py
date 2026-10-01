@@ -202,6 +202,11 @@ def update_features(db: Session, dataset: Dataset, toggles: list[FeatureToggle])
 
 
 def run_validation(db: Session, dataset: Dataset) -> Dataset:
+    """Run validation - can be called synchronously or as a background task."""
+    # For background tasks, we need to refresh the dataset from the DB
+    if dataset.id:
+        dataset = db.get(Dataset, dataset.id) or dataset
+    
     _guard_not_published(dataset)
     _guard_no_active_run(db, dataset)
     config = dataset.config
@@ -237,8 +242,13 @@ def run_validation(db: Session, dataset: Dataset) -> Dataset:
 
 
 def run_processing(db: Session, dataset: Dataset) -> Dataset:
+    """Run processing - can be called synchronously or as a background task."""
+    # For background tasks, we need to refresh the dataset from the DB
+    if dataset.id:
+        dataset = db.get(Dataset, dataset.id) or dataset
+    
     _guard_not_published(dataset)
-    if dataset.status not in (DatasetStatus.VALIDATED, DatasetStatus.PROCESSED):
+    if dataset.status not in (DatasetStatus.VALIDATED, DatasetStatus.PROCESSED, DatasetStatus.PROCESSING):
         raise HTTPException(status.HTTP_409_CONFLICT, "Only validated datasets can be processed. Validate the dataset first.")
     _guard_no_active_run(db, dataset)
     settings = get_settings()
