@@ -71,6 +71,12 @@ def process_dataset(dataset_id: int, _: User = Depends(require_admin), db: Sessi
     return svc.run_processing(db, svc.get_dataset_or_404(db, dataset_id))
 
 
+@admin_router.get("/{dataset_id}/eda")
+def dataset_eda(dataset_id: int, _: User = Depends(require_admin), db: Session = Depends(get_db)):
+    """Trend, seasonality, distribution, correlation and ACF for the processed series."""
+    return svc.compute_eda(svc.get_dataset_or_404(db, dataset_id))
+
+
 @admin_router.delete("/{dataset_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_dataset(dataset_id: int, _: User = Depends(require_admin), db: Session = Depends(get_db)):
     svc.delete_dataset(db, svc.get_dataset_or_404(db, dataset_id))

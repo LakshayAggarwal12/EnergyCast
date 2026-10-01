@@ -13,8 +13,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
+from app.data.eda import build_eda
 from app.data.loader import CsvFormatError, sniff_csv
-from app.data.preprocessing import PreprocessingError, preprocess_dataset, save_processed
+from app.data.preprocessing import PreprocessingError, load_processed, preprocess_dataset, save_processed
 from app.data.profile import build_profile
 from app.data.validator import validate_dataset
 from app.database.models import Dataset, DatasetStatus, Feature, RunStatus, TrainingRun, User
@@ -276,3 +277,20 @@ def feature_defaults_for(dataset: Dataset) -> tuple[list[int], list[int]]:
     derived = dataset.config["derived"]
     horizon = dataset.config.get("forecast_horizon_steps") or derived["default_horizon_steps"]
     return default_lags_and_windows(derived["modeling_minutes"], horizon)
+
+
+def compute_eda(dataset: Dataset) -> dict:
+    if dataset.status not in (DatasetStatus.PROCESSED, DatasetStatus.PUBLISHED) or not dataset.processed_path:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Process the dataset before viewing exploratory analysis.")
+    try:
+        frame = load_processed(Path(dataset.processed_path))
+    except Exception:
+        raise HTTPException(status.HTTP_409_CONFLICT, "The processed dataset file is missing or unreadable.")
+    target = dataset.target_column or (dataset.config or {}).get("target_column")
+    if not target:
+        raise HTTPException(status.HTTP_409_CONFLICT, "This dataset has no target column configured.")
+    exogenous = list((dataset.config or {}).get("exogenous_columns") or [])
+    try:
+        return build_eda(frame, target, exogenous)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc))

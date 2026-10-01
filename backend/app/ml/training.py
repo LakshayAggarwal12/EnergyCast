@@ -28,19 +28,20 @@ class TrainingConfig:
     models: list[str] | None = None
     arima_fit_days: int = 180
     random_state: int = 42
+    tune: bool = True
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "target": self.target, "plan": self.plan.to_dict(), "train_ratio": self.train_ratio,
             "val_ratio": self.val_ratio, "models": self.models, "arima_fit_days": self.arima_fit_days,
-            "random_state": self.random_state,
+            "random_state": self.random_state, "tune": self.tune,
         }
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "TrainingConfig":
         return cls(target=d["target"], plan=FeaturePlan.from_dict(d["plan"]), train_ratio=d["train_ratio"],
                    val_ratio=d["val_ratio"], models=d.get("models"), arima_fit_days=d["arima_fit_days"],
-                   random_state=d.get("random_state", 42))
+                   random_state=d.get("random_state", 42), tune=d.get("tune", True))
 
 
 @dataclass
@@ -98,7 +99,7 @@ def train_and_evaluate(
     ctx = TrainingContext(
         y=y, X=X, train_rows=train_rows, val_rows=val_rows, eval_index=eval_index, split=split, plan=plan,
         steps_per_day=spd, seasonal_period=spd if plan.freq_minutes < 1440 else 7,
-        arima_fit_window=cfg.arima_fit_days * spd, random_state=cfg.random_state,
+        arima_fit_window=cfg.arima_fit_days * spd, random_state=cfg.random_state, tune=cfg.tune,
     )
 
     fits: dict[str, ModelFit] = {}

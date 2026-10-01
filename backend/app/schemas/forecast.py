@@ -13,6 +13,10 @@ class ForecastRequest(BaseModel):
         default=None,
         description="Optional backtest start inside the model's held-out test period; omit to forecast from the latest data.",
     )
+    enabled_features: list[str] | None = Field(
+        default=None,
+        description="Feature groups/exogenous columns to use. Required groups cannot be omitted; omitted exogenous are held at their historical mean.",
+    )
 
     @field_validator("origin")
     @classmethod
@@ -62,6 +66,7 @@ class ForecastDetail(BaseModel):
     values: list[ForecastPoint]
     history: list[HistoryPoint]
     metrics: ForecastMetricsOut | None
+    enabled_features: list[str] | None = None
 
 
 class ForecastSummary(BaseModel):

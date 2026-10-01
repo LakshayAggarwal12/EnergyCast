@@ -7,7 +7,7 @@ from app.auth.deps import get_current_user
 from app.auth.security import create_access_token, hash_password, verify_password
 from app.database.models import ROLE_USER, User
 from app.database.session import get_db
-from app.schemas.auth import LoginRequest, RegisterRequest, TokenResponse, UserOut
+from app.schemas.auth import LoginRequest, ProfileUpdate, RegisterRequest, TokenResponse, UserOut
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -39,4 +39,21 @@ def login(body: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse:
 
 @router.get("/me", response_model=UserOut)
 def me(user: User = Depends(get_current_user)) -> User:
+    return user
+
+
+@router.put("/me", response_model=UserOut)
+def update_me(body: ProfileUpdate, user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> User:
+    if body.name is None and body.new_password is None:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Provide a name and/or a new password.")
+    if body.new_password is not None:
+        if not body.current_password:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Current password is required to set a new password.")
+        if not verify_password(body.current_password, user.password_hash):
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Current password is incorrect.")
+        user.password_hash = hash_password(body.new_password)
+    if body.name is not None:
+        user.name = body.name.strip()
+    db.commit()
+    db.refresh(user)
     return user

@@ -66,9 +66,10 @@ export const api = {
   setFeatures: (id, toggles) => request(`/api/admin/datasets/${id}/features`, { method: "PUT", json: toggles }),
   validateDataset: (id) => request(`/api/admin/datasets/${id}/validate`, { method: "POST" }),
   processDataset: (id) => request(`/api/admin/datasets/${id}/process`, { method: "POST" }),
+  getEda: (id) => request(`/api/admin/datasets/${id}/eda`),
   deleteDataset: (id) => request(`/api/admin/datasets/${id}`, { method: "DELETE" }),
 
-  train: (datasetId, models) => request("/api/admin/models/train", { method: "POST", json: { dataset_id: datasetId, ...(models ? { models } : {}) } }),
+  train: (datasetId, models, tune = true) => request("/api/admin/models/train", { method: "POST", json: { dataset_id: datasetId, ...(models ? { models } : {}), tune } }),
   comparison: (datasetId) => request(`/api/admin/models/${datasetId}`),
   trainingRun: (runId) => request(`/api/admin/training-runs/${runId}`),
   publishModel: (modelId) => request(`/api/admin/models/${modelId}/publish`, { method: "POST" }),

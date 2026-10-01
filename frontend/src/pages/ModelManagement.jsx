@@ -13,6 +13,7 @@ export default function ModelManagement() {
   const { id } = useParams();
   const [data, setData] = useState(null);
   const [selected, setSelected] = useState(MODEL_NAMES);
+  const [tune, setTune] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -38,7 +39,7 @@ export default function ModelManagement() {
   const start = async () => {
     setError(""); setBusy(true);
     try {
-      await api.train(Number(id), selected.length === MODEL_NAMES.length ? null : selected);
+      await api.train(Number(id), selected.length === MODEL_NAMES.length ? null : selected, tune);
       await load();
     } catch (e) { setError(e.message); } finally { setBusy(false); }
   };
@@ -67,6 +68,13 @@ export default function ModelManagement() {
         <div className="flex flex-wrap gap-4">{MODEL_NAMES.map((m) => (
           <label key={m} className="flex items-center gap-1.5 text-sm"><input type="checkbox" checked={selected.includes(m)} disabled={active} onChange={() => setSelected(selected.includes(m) ? selected.filter((x) => x !== m) : [...selected, m])} />{m}</label>
         ))}</div>
+        <div className="mt-4 pt-4 border-t border-line flex items-center gap-2">
+          <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
+            <input type="checkbox" className="accent-accent" checked={tune} onChange={(e) => setTune(e.target.checked)} disabled={active} />
+            Tune hyperparameters
+          </label>
+          <span className="text-xs text-muted">(Searches for optimal parameters using validation data)</span>
+        </div>
         <p className="text-xs text-muted mt-3">Trains on a chronological split. Training runs in the background; this page updates automatically.</p>
       </Card>
 

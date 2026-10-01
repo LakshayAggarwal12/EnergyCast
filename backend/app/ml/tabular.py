@@ -3,11 +3,10 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import xgboost as xgb
-from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import LinearRegression
 
 from app.ml.base import ModelFit, ModelSpec, TrainingContext
+from app.ml.tuning import fit_random_forest, random_forest_grid, search_sklearn, search_xgboost
 
 
 def _predict_eval(ctx: TrainingContext, model) -> pd.Series:
@@ -38,39 +37,47 @@ def linear_regression(ctx: TrainingContext) -> ModelFit:
 
 
 def random_forest(ctx: TrainingContext) -> ModelFit:
-    model = RandomForestRegressor(
-        n_estimators=300, max_features=0.5, min_samples_leaf=2, n_jobs=-1, random_state=ctx.random_state
-    )
-    model.fit(ctx.X[ctx.train_rows], ctx.y[ctx.train_rows])
-    return ModelFit(
-        _predict_eval(ctx, model), _artifact("sklearn", model, ctx),
-        {"n_estimators": 300, "max_features": 0.5, "min_samples_leaf": 2, "n_train_rows": int(ctx.train_rows.sum()),
-         "top_feature_importances": _top_importances(list(ctx.X.columns), model.feature_importances_)},
-    )
+    grid = random_forest_grid(ctx.random_state)
+    if ctx.tune:
+        model, params, tried = search_sklearn(ctx, fit_random_forest, grid)
+    else:
+        params = grid[-1]
+        model = fit_random_forest(params)
+        model.fit(ctx.X[ctx.train_rows], ctx.y[ctx.train_rows])
+        tried = None
+    recorded = {k: (None if v is None else v) for k, v in params.items() if k != "random_state"}
+    recorded["n_train_rows"] = int(ctx.train_rows.sum())
+    recorded["top_feature_importances"] = _top_importances(list(ctx.X.columns), model.feature_importances_)
+    if tried is not None:
+        recorded["search"] = {"criterion": "validation_mae", "tried": tried}
+    return ModelFit(_predict_eval(ctx, model), _artifact("sklearn", model, ctx), recorded)
 
 
 def xgboost_model(ctx: TrainingContext) -> ModelFit:
-    """Early stopping uses the *validation* period only; the test period is never touched during fitting."""
-    model = xgb.XGBRegressor(
-        n_estimators=1000, learning_rate=0.05, max_depth=6, subsample=0.8, colsample_bytree=0.8,
-        min_child_weight=3, objective="reg:squarederror", eval_metric="mae", early_stopping_rounds=50,
-        tree_method="hist", n_jobs=-1, random_state=ctx.random_state,
-    )
-    model.fit(
-        ctx.X[ctx.train_rows], ctx.y[ctx.train_rows],
-        eval_set=[(ctx.X[ctx.val_rows], ctx.y[ctx.val_rows])], verbose=False,
-    )
-    return ModelFit(
-        _predict_eval(ctx, model), _artifact("xgboost", model, ctx),
-        {"learning_rate": 0.05, "max_depth": 6, "best_iteration": int(model.best_iteration),
-         "early_stopping": "validation MAE, 50 rounds", "n_train_rows": int(ctx.train_rows.sum()),
-         "top_feature_importances": _top_importances(list(ctx.X.columns), model.feature_importances_)},
-    )
+    """Candidate configs (and early stopping) use the validation period only; the test period is never touched."""
+    if ctx.tune:
+        model, params, tried = search_xgboost(ctx)
+    else:
+        from app.ml.tuning import fit_xgboost
+        params = {"max_depth": 6, "learning_rate": 0.05, "min_child_weight": 3, "random_state": ctx.random_state}
+        model = fit_xgboost(ctx, params)
+        tried = None
+    recorded = {
+        "learning_rate": params["learning_rate"], "max_depth": params["max_depth"],
+        "min_child_weight": params["min_child_weight"],
+        "best_iteration": int(model.best_iteration),
+        "early_stopping": "validation MAE, 40 rounds",
+        "n_train_rows": int(ctx.train_rows.sum()),
+        "top_feature_importances": _top_importances(list(ctx.X.columns), model.feature_importances_),
+    }
+    if tried is not None:
+        recorded["search"] = {"criterion": "validation_mae", "tried": tried}
+    return ModelFit(_predict_eval(ctx, model), _artifact("xgboost", model, ctx), recorded)
 
 
 def tabular_specs() -> list[ModelSpec]:
     return [
         ModelSpec("linear_regression", "feature_ml", "Linear Regression on engineered features", linear_regression),
-        ModelSpec("random_forest", "feature_ml", "Random Forest (300 trees)", random_forest),
-        ModelSpec("xgboost", "feature_ml", "XGBoost with validation early stopping", xgboost_model),
+        ModelSpec("random_forest", "feature_ml", "Random Forest with validation MAE search", random_forest),
+        ModelSpec("xgboost", "feature_ml", "XGBoost with validation MAE search and early stopping", xgboost_model),
     ]

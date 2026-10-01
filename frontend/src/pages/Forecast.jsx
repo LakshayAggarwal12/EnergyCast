@@ -15,6 +15,7 @@ export default function Forecast() {
   const [horizon, setHorizon] = useState(24);
   const [mode, setMode] = useState("latest");
   const [origin, setOrigin] = useState("");
+  const [selectedFeatures, setSelectedFeatures] = useState([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -29,6 +30,7 @@ export default function Forecast() {
       setInfo(i);
       setHorizon(Math.min(24, i.horizon.max_steps));
       setOrigin(i.backtest.max_origin ? toLocalInput(i.backtest.max_origin) : "");
+      setSelectedFeatures(i.features?.groups?.map(g => g.name) || []);
     }).catch((e) => setInfoError(e.message));
   }, [datasetId]);
 
@@ -45,6 +47,7 @@ export default function Forecast() {
     try {
       const body = { dataset_id: datasetId, horizon: Number(horizon) };
       if (mode === "backtest") body.origin = `${origin}:00`;
+      if (info?.features?.uses_features) body.enabled_features = selectedFeatures;
       const f = await api.createForecast(body);
       navigate(`/forecasts/${f.id}`);
     } catch (err) { setError(err.message); } finally { setBusy(false); }
@@ -73,13 +76,33 @@ export default function Forecast() {
 
         {info && (<>
           <Card title="2. Model inputs">
-            <p className="text-sm">Model: <b>{info.model.name}</b> · test MAE {fmtNum(info.model.metrics?.test?.mae)}</p>
+            <p className="text-sm mb-3">Model: <b>{info.model.name}</b> · test MAE {fmtNum(info.model.metrics?.test?.mae)}</p>
             {info.features.uses_features ? (
-              <ul className="mt-3 space-y-1 text-sm">{info.features.groups.map((g) => <li key={g.name}><b>{g.display_name}</b> <span className="text-muted">— {g.detail}</span></li>)}</ul>
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Select features to include:</p>
+                <div className="flex flex-col gap-2">
+                  {info.features.groups.map((g) => (
+                    <label key={g.name} className="flex items-start gap-2 text-sm cursor-pointer p-2 rounded hover:bg-slate-50 transition-colors border border-transparent hover:border-line">
+                      <input 
+                        type="checkbox" 
+                        className="mt-1 accent-accent"
+                        checked={selectedFeatures.includes(g.name)}
+                        onChange={(e) => {
+                          if (e.target.checked) setSelectedFeatures([...selectedFeatures, g.name]);
+                          else setSelectedFeatures(selectedFeatures.filter(f => f !== g.name));
+                        }}
+                      />
+                      <div>
+                        <b>{g.display_name}</b> <span className="text-muted">— {g.detail}</span>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              </div>
             ) : (
               <p className="mt-2 text-sm text-muted">This model forecasts from the recent history of {info.dataset.target_column} alone.</p>
             )}
-            <p className="mt-3 text-xs text-muted">The inputs are fixed by the administrator when the model is trained, so every forecast is consistent with the evaluated results.</p>
+            <p className="mt-4 text-xs text-muted">Select which exogenous features to include. Omitted features will be held at their historical mean.</p>
           </Card>
 
           <Card title="3. Forecast horizon">

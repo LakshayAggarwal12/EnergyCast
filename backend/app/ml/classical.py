@@ -1,5 +1,8 @@
 """ARIMA / SARIMA via statsmodels. Parameters are fitted once on (the tail of) the training period, then the
-model walks forward block by block: forecast H steps, absorb the realised values, repeat (no re-estimation)."""
+model walks forward block by block: forecast H steps, absorb the realised values, repeat (no re-estimation).
+
+When tuning is on, a small candidate set is scored with AIC on the training window only; the test period is
+never used to pick an order."""
 from __future__ import annotations
 
 import warnings
@@ -9,11 +12,30 @@ import pandas as pd
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 
 from app.ml.base import ModelFit, ModelSpec, TrainingContext
+from app.ml.tuning import arima_candidates, sarima_candidates
+
+
+def _train_window(ctx: TrainingContext) -> pd.Series:
+    train_y = ctx.y[ctx.y.index < ctx.split.train_end]
+    return train_y.iloc[-ctx.arima_fit_window :]
+
+
+def _aic(window: pd.Series, order, seasonal_order, trend) -> float:
+    endog = window.to_numpy(dtype="float64")
+    if np.isnan(endog).all():
+        raise ValueError("The training window contains no observations.")
+    model = SARIMAX(
+        endog, order=order, seasonal_order=seasonal_order, trend=trend,
+        enforce_stationarity=False, enforce_invertibility=False,
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        fitted = model.fit(disp=False, maxiter=80)
+    return float(fitted.aic)
 
 
 def _walk_forward(ctx: TrainingContext, order, seasonal_order, trend, name: str) -> ModelFit:
-    train_y = ctx.y[ctx.y.index < ctx.split.train_end]
-    window = train_y.iloc[-ctx.arima_fit_window :]
+    window = _train_window(ctx)
     endog = window.to_numpy(dtype="float64")
     if np.isnan(endog).all():
         raise ValueError("The training window contains no observations.")
@@ -61,16 +83,46 @@ def _walk_forward(ctx: TrainingContext, order, seasonal_order, trend, name: str)
     )
 
 
+def _select_order(ctx: TrainingContext, candidates, fallback):
+    if not ctx.tune:
+        return fallback, None
+    window = _train_window(ctx)
+    tried = []
+    best = None
+    for order, seasonal_order, trend in candidates:
+        row: dict = {"order": list(order), "seasonal_order": list(seasonal_order), "trend": trend}
+        try:
+            aic = _aic(window, order, seasonal_order, trend)
+            row["aic"] = round(aic, 3)
+            if best is None or aic < best[0]:
+                best = (aic, order, seasonal_order, trend)
+        except Exception as exc:
+            row["error"] = f"{type(exc).__name__}: {exc}"[:180]
+        tried.append(row)
+    if best is None:
+        order, seasonal_order, trend = fallback
+        return (order, seasonal_order, trend), {"criterion": "aic", "tried": tried, "fallback": True}
+    return (best[1], best[2], best[3]), {"criterion": "aic", "tried": tried, "fallback": False}
+
+
 def arima(ctx: TrainingContext) -> ModelFit:
-    return _walk_forward(ctx, (2, 0, 1), (0, 0, 0, 0), "c", "arima")
+    chosen, search = _select_order(ctx, arima_candidates(), ((2, 0, 1), (0, 0, 0, 0), "c"))
+    fit = _walk_forward(ctx, chosen[0], chosen[1], chosen[2], "arima")
+    if search:
+        fit.params["search"] = search
+    return fit
 
 
 def sarima(ctx: TrainingContext) -> ModelFit:
-    return _walk_forward(ctx, (1, 0, 1), (0, 1, 1, ctx.seasonal_period), None, "sarima")
+    chosen, search = _select_order(ctx, sarima_candidates(ctx.seasonal_period), ((1, 0, 1), (0, 1, 1, ctx.seasonal_period), None))
+    fit = _walk_forward(ctx, chosen[0], chosen[1], chosen[2], "sarima")
+    if search:
+        fit.params["search"] = search
+    return fit
 
 
 def classical_specs() -> list[ModelSpec]:
     return [
-        ModelSpec("arima", "classical", "ARIMA(2,0,1) with constant", arima),
-        ModelSpec("sarima", "classical", "SARIMA(1,0,1)(0,1,1)[daily season]", sarima),
+        ModelSpec("arima", "classical", "ARIMA with AIC order search on the training window", arima),
+        ModelSpec("sarima", "classical", "SARIMA with AIC seasonal-order search on the training window", sarima),
     ]

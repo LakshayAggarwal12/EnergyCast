@@ -80,7 +80,14 @@ def _sarimax(payload: dict[str, Any], y: pd.Series, horizon: int) -> np.ndarray:
         return np.asarray(result.forecast(steps=horizon), dtype="float64")
 
 
-def _tabular(bundle: dict[str, Any], plan: FeaturePlan, hist: pd.DataFrame, target: str, future: pd.DatetimeIndex) -> np.ndarray:
+def _tabular(
+    bundle: dict[str, Any],
+    plan: FeaturePlan,
+    hist: pd.DataFrame,
+    target: str,
+    future: pd.DatetimeIndex,
+    muted_exogenous: list[str] | None = None,
+) -> np.ndarray:
     cols = [target] + list(plan.exogenous)
     needed = max([*plan.lags, *plan.rolling_windows, 0]) + plan.horizon + 24
     tail = hist[cols].iloc[-needed:]
@@ -90,7 +97,14 @@ def _tabular(bundle: dict[str, Any], plan: FeaturePlan, hist: pd.DataFrame, targ
     absent = [c for c in columns if c not in features.columns]
     if absent:
         raise ForecastError(f"The model expects features that cannot be built: {', '.join(absent)}.")
-    rows = features.loc[future, columns]
+    rows = features.loc[future, columns].copy()
+    for col in muted_exogenous or []:
+        feat = f"{col}_lag_{plan.horizon}"
+        if feat not in rows.columns:
+            continue
+        hist_feat = features.reindex(hist.index)[feat].dropna()
+        fill = float(hist_feat.mean()) if len(hist_feat) else 0.0
+        rows[feat] = fill
     bad = rows.columns[rows.isna().any()].tolist()
     if bad:
         raise ForecastError(
@@ -100,7 +114,11 @@ def _tabular(bundle: dict[str, Any], plan: FeaturePlan, hist: pd.DataFrame, targ
 
 
 def generate_forecast(
-    bundle: dict[str, Any], frame: pd.DataFrame, horizon: int, origin: datetime | pd.Timestamp | None = None
+    bundle: dict[str, Any],
+    frame: pd.DataFrame,
+    horizon: int,
+    origin: datetime | pd.Timestamp | None = None,
+    muted_exogenous: list[str] | None = None,
 ) -> ForecastResult:
     plan = FeaturePlan.from_dict(bundle["feature_plan"])
     target = bundle["target"]
@@ -121,7 +139,7 @@ def generate_forecast(
     elif kind == "sarimax":
         values = _sarimax(payload, hist[target], horizon)
     elif kind in ("sklearn", "xgboost"):
-        values = _tabular(bundle, plan, hist, target, future)
+        values = _tabular(bundle, plan, hist, target, future, muted_exogenous)
     else:
         raise ForecastError(f"Unsupported model kind '{kind}'.")
 

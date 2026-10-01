@@ -138,16 +138,16 @@ def forecast_info(db: Session, dataset: Dataset) -> dict[str, Any]:
     test_start = pd.Timestamp(run.split["test"]["start"])
     last_origin = last_obs - pd.Timedelta(minutes=step)
 
-    groups: list[dict[str, str]] = []
+    groups: list[dict[str, Any]] = []
     if model.category == "feature_ml":
         if plan.use_calendar:
-            groups.append({"name": "calendar", "display_name": "Calendar", "detail": "hour, weekday, month, season, weekend"})
+            groups.append({"name": "calendar", "display_name": "Calendar", "detail": "hour, weekday, month, season, weekend", "required": True, "selectable": False})
         if plan.lags:
-            groups.append({"name": "lags", "display_name": "Recent consumption", "detail": "values from " + ", ".join(_steps_text(l, step) for l in plan.lags) + " earlier"})
+            groups.append({"name": "lags", "display_name": "Recent consumption", "detail": "values from " + ", ".join(_steps_text(l, step) for l in plan.lags) + " earlier", "required": True, "selectable": False})
         if plan.rolling_windows:
-            groups.append({"name": "rolling", "display_name": "Rolling averages", "detail": "mean and variability over " + ", ".join(_steps_text(w, step) for w in plan.rolling_windows)})
+            groups.append({"name": "rolling", "display_name": "Rolling averages", "detail": "mean and variability over " + ", ".join(_steps_text(w, step) for w in plan.rolling_windows), "required": True, "selectable": False})
         for col in plan.exogenous:
-            groups.append({"name": col, "display_name": col, "detail": f"lagged by {_steps_text(plan.horizon, step)}"})
+            groups.append({"name": col, "display_name": col, "detail": f"lagged by {_steps_text(plan.horizon, step)}", "required": False, "selectable": True})
 
     return {
         "dataset": {"id": dataset.id, "name": dataset.name, "energy_type": dataset.energy_type, "target_column": target},
@@ -159,5 +159,9 @@ def forecast_info(db: Session, dataset: Dataset) -> dict[str, Any]:
             "min_origin": str(test_start),
             "max_origin": str(last_origin) if last_origin >= test_start else None,
         },
-        "features": {"uses_features": model.category == "feature_ml", "groups": groups},
+        "features": {
+            "uses_features": model.category == "feature_ml",
+            "groups": groups,
+            "defaults": [g["name"] for g in groups],
+        },
     }

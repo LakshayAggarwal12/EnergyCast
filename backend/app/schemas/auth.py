@@ -34,6 +34,17 @@ class UserOut(BaseModel):
     created_at: datetime
 
 
+class ProfileUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    current_password: str | None = None
+    new_password: str | None = Field(default=None, min_length=8)
+
+    @field_validator("new_password")
+    @classmethod
+    def _new_password(cls, value: str | None) -> str | None:
+        return None if value is None else _check_password(value)
+
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"

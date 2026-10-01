@@ -1,8 +1,8 @@
 export const Card = ({ title, action, children, className = "" }) => (
-  <section className={`bg-surface border border-line rounded-lg ${className}`}>
+  <section className={`bg-surface border border-line rounded-lg shadow-sm hover:shadow-md transition-shadow duration-200 ${className}`}>
     {(title || action) && (
       <div className="flex items-center justify-between px-5 py-3 border-b border-line">
-        <h2 className="font-medium">{title}</h2>
+        <h2 className="font-medium text-accent-strong">{title}</h2>
         {action}
       </div>
     )}
@@ -11,10 +11,10 @@ export const Card = ({ title, action, children, className = "" }) => (
 );
 
 const tones = {
-  ok: "bg-green-50 text-ok border-green-200",
-  warn: "bg-amber-50 text-warn border-amber-200",
-  bad: "bg-red-50 text-bad border-red-200",
-  info: "bg-slate-100 text-muted border-line",
+  ok: "bg-[#10b981]/10 text-ok border-[#10b981]/30",
+  warn: "bg-[#f59e0b]/10 text-warn border-[#f59e0b]/30",
+  bad: "bg-[#ef4444]/10 text-bad border-[#ef4444]/30",
+  info: "bg-surface text-muted border-line",
 };
 
 export const Badge = ({ tone = "info", children }) => (
@@ -29,9 +29,9 @@ export const Button = ({ variant = "primary", className = "", ...props }) => {
   const styles = {
     primary: "bg-accent text-white hover:bg-accent-strong disabled:opacity-50",
     secondary: "bg-surface text-ink border border-line hover:bg-bg disabled:opacity-50",
-    danger: "bg-surface text-bad border border-red-200 hover:bg-red-50 disabled:opacity-50",
+    danger: "bg-surface text-bad border border-[#ef4444]/30 hover:bg-[#ef4444]/10 disabled:opacity-50",
   };
-  return <button className={`px-3.5 py-2 rounded-md text-sm font-medium disabled:cursor-not-allowed ${styles[variant]} ${className}`} {...props} />;
+  return <button className={`px-3.5 py-2 rounded-md text-sm font-medium transition-all duration-200 active:scale-95 disabled:cursor-not-allowed disabled:active:scale-100 ${styles[variant]} ${className}`} {...props} />;
 };
 
 export const Field = ({ label, hint, children }) => (
@@ -42,7 +42,7 @@ export const Field = ({ label, hint, children }) => (
   </label>
 );
 
-export const inputClass = "w-full rounded-md border border-line bg-surface px-3 py-2 text-sm";
+export const inputClass = "w-full rounded-md border border-line bg-surface px-3 py-2 text-sm transition-colors duration-200 focus:border-accent focus:ring-1 focus:ring-accent";
 
 const STATUS_TONE = {
   uploaded: "info", configured: "info", validated: "warn", processed: "ok", published: "ok",

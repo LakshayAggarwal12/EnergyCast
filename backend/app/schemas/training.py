@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 class TrainRequest(BaseModel):
     dataset_id: int
     models: list[str] | None = Field(default=None, description="Subset of models to train; all when omitted.")
+    tune: bool = Field(default=True, description="Search a small hyperparameter grid using validation only.")
 
 
 class ModelOut(BaseModel):

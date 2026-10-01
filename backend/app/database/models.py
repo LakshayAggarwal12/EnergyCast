@@ -158,8 +158,6 @@ class ModelRecord(Base):
 
 
 class Forecast(Base):
-    """Reserved for the user-forecasting phase (documented schema, no endpoints yet)."""
-
     __tablename__ = "forecasts"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -167,6 +165,7 @@ class Forecast(Base):
     dataset_id: Mapped[int] = mapped_column(ForeignKey("datasets.id", ondelete="CASCADE"), index=True)
     model_id: Mapped[int] = mapped_column(ForeignKey("models.id", ondelete="CASCADE"))
     horizon: Mapped[int] = mapped_column(Integer)
+    options: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     values: Mapped[list[ForecastValue]] = relationship(cascade="all, delete-orphan")

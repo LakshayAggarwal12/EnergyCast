@@ -22,7 +22,7 @@ def train_models(
     """Queue a training run (baselines, ARIMA/SARIMA, Linear Regression, Random Forest, XGBoost).
     Poll GET /api/admin/training-runs/{id} for status."""
     dataset = dataset_service.get_dataset_or_404(db, body.dataset_id)
-    run = training_service.create_run(db, dataset, admin.id, body.models)
+    run = training_service.create_run(db, dataset, admin.id, body.models, body.tune)
     background.add_task(training_service.execute_run, run.id)
     return run
 

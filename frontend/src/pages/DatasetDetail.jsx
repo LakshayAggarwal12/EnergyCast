@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../services/api";
 import { Alert, Button, Card, Field, StatusBadge, inputClass } from "../components/ui";
 import { PreprocessingReport, ValidationReport } from "../components/ReportPanel";
+import EdaCharts from "../components/EdaCharts";
 import { fmtBytes, fmtInt } from "../services/format";
 
 const STEPS = ["uploaded", "configured", "validated", "processed"];
@@ -144,6 +145,12 @@ export default function DatasetDetail() {
         {!ds.validation_report ? <p className="text-sm text-muted">{ds.status === "uploaded" && !noTimestamp ? "Save the configuration, then validate." : "Run validation to check timestamps, data types, duplicates, gaps and data quality."}</p> : <ValidationReport report={ds.validation_report} />}
         {ds.preprocessing_report && <div className="mt-5"><div className="text-sm font-medium mb-2">Preprocessing</div><PreprocessingReport report={ds.preprocessing_report} /></div>}
       </Card>
+
+      {canTrain && (
+        <Card title="Exploratory Data Analysis (EDA)">
+          <EdaCharts datasetId={ds.id} />
+        </Card>
+      )}
 
       <div className="flex justify-end"><Button variant="danger" onClick={remove} disabled={!!busy || published}>Delete dataset</Button></div>
     </div>

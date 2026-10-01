@@ -23,6 +23,7 @@ class TrainingContext:
     seasonal_period: int
     arima_fit_window: int
     random_state: int = 42
+    tune: bool = True
 
     @property
     def horizon(self) -> int:
