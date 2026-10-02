@@ -114,44 +114,80 @@ def execute_run(run_id: int) -> None:
 
 
 def _execute_run(run_id: int) -> None:
-    """Background task: owns its DB sessions (the request session is closed by then)."""
+    """Background task: runs in phases so the DB session isn't held open during heavy ML work."""
     settings = get_settings()
-    with SessionLocal() as db:
-        run = db.get(TrainingRun, run_id)
-        if run is None or run.status != RunStatus.QUEUED:
-            return
-        dataset = db.get(Dataset, run.dataset_id)
-        run.status, run.stage, run.started_at = RunStatus.RUNNING, "loading processed data", _utcnow()
-        db.commit()
-        try:
+
+    # Phase 1 - Initialization
+    try:
+        with SessionLocal() as db:
+            run = db.get(TrainingRun, run_id)
+            if run is None or run.status != RunStatus.QUEUED:
+                return
+            dataset = db.get(Dataset, run.dataset_id)
+            
+            # Update status
+            run.status, run.stage, run.started_at = RunStatus.RUNNING, "loading processed data", _utcnow()
+            db.commit()
+            
             cfg = TrainingConfig.from_dict(run.config)
             download_file_from_db(db, "datasets", Path(dataset.processed_path).name, dataset.processed_path)
-            frame = load_processed(Path(dataset.processed_path))
-            output = train_and_evaluate(frame, cfg, progress=lambda msg: _set_stage(run_id, msg))
+            
+            # Store primitive values needed for ML/saving phase
+            dataset_id = dataset.id
+            processed_path = Path(dataset.processed_path)
+            run_version = run.version
+    except Exception as exc:
+        traceback.print_exc()
+        _fail_run(run_id, exc)
+        return
 
-            _set_stage(run_id, "saving models")
-            artifact_dir = settings.MODEL_STORAGE_PATH / f"dataset_{dataset.id}" / f"v{run.version}"
-            trained_range = output.split["train"]
+    # Phase 2 - ML Execution (No active DB session)
+    try:
+        frame = load_processed(processed_path)
+        output = train_and_evaluate(frame, cfg, progress=lambda msg: _set_stage(run_id, msg))
+    except Exception as exc:
+        traceback.print_exc()
+        _fail_run(run_id, exc)
+        return
+
+    # Phase 3 - Persistence
+    try:
+        _set_stage(run_id, "saving models")
+        artifact_dir = settings.MODEL_STORAGE_PATH / f"dataset_{dataset_id}" / f"v{run_version}"
+        trained_range = output.split["train"]
+
+        with SessionLocal() as db:
+            run = db.get(TrainingRun, run_id)
+            if not run:
+                return
+            
             for outcome in output.outcomes:
                 artifact_path = None
                 if outcome.status == ModelStatus.TRAINED:
                     artifact_path = _save_artifact(artifact_dir, outcome, cfg, output.feature_columns, trained_range)
                     # Upload model artifact
-                    unique_name = f"dataset_{dataset.id}_v{run.version}_{outcome.name}.joblib"
+                    unique_name = f"dataset_{dataset_id}_v{run_version}_{outcome.name}.joblib"
                     upload_file_to_db(db, "models", artifact_path, unique_name)
+                    
                 db.add(ModelRecord(
-                    dataset_id=dataset.id, run_id=run.id, model_name=outcome.name, category=outcome.category,
-                    version=run.version, metrics=outcome.metrics, params=outcome.params, artifact_path=artifact_path,
+                    dataset_id=dataset_id, run_id=run_id, model_name=outcome.name, category=outcome.category,
+                    version=run_version, metrics=outcome.metrics, params=outcome.params, artifact_path=artifact_path,
                     status=outcome.status, error_message=outcome.error, training_seconds=round(outcome.seconds, 3),
                 ))
+            
             run.split = output.split
             run.summary = {**output.summary, "feature_columns": output.feature_columns}
             run.status, run.stage, run.finished_at = RunStatus.COMPLETED, "completed", _utcnow()
             db.commit()
-        except Exception as exc:
-            db.rollback()
-            traceback.print_exc()
-            run = db.get(TrainingRun, run_id)
+    except Exception as exc:
+        traceback.print_exc()
+        _fail_run(run_id, exc)
+
+
+def _fail_run(run_id: int, exc: Exception) -> None:
+    with SessionLocal() as db:
+        run = db.get(TrainingRun, run_id)
+        if run:
             run.status, run.stage, run.finished_at = RunStatus.FAILED, "failed", _utcnow()
             run.error_message = f"{type(exc).__name__}: {exc}"[:1000]
             db.commit()
