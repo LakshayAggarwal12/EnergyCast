@@ -67,9 +67,10 @@ def validate_dataset(dataset_id: int, background: BackgroundTasks, _: User = Dep
     dataset = svc.get_dataset_or_404(db, dataset_id)
     if dataset.status in (DatasetStatus.VALIDATING, DatasetStatus.PROCESSING):
         raise HTTPException(status.HTTP_409_CONFLICT, "This dataset is currently being validated or processed. Please wait for the operation to complete.")
+    svc.precheck_validation(db, dataset)  # refuse BEFORE the status is overwritten
     dataset.status = DatasetStatus.VALIDATING  # Set to validating state
     db.commit()
-    background.add_task(svc.run_validation, db, dataset)
+    background.add_task(svc.run_validation_job, dataset.id)
     db.refresh(dataset)
     return dataset
 
@@ -80,9 +81,10 @@ def process_dataset(dataset_id: int, background: BackgroundTasks, _: User = Depe
     dataset = svc.get_dataset_or_404(db, dataset_id)
     if dataset.status in (DatasetStatus.VALIDATING, DatasetStatus.PROCESSING):
         raise HTTPException(status.HTTP_409_CONFLICT, "This dataset is currently being validated or processed. Please wait for the operation to complete.")
+    svc.precheck_processing(db, dataset)  # refuse BEFORE the status is overwritten
     dataset.status = DatasetStatus.PROCESSING  # Set to processing state
     db.commit()
-    background.add_task(svc.run_processing, db, dataset)
+    background.add_task(svc.run_processing_job, dataset.id)
     db.refresh(dataset)
     return dataset
 

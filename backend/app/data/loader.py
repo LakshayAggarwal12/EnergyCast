@@ -145,6 +145,71 @@ def read_csv_frame(
         raise CsvFormatError(f"The CSV could not be parsed: {exc}") from exc
 
 
+CHUNK_ROWS = 50_000           # rows parsed at a time: about 7 MB of text, so memory stays flat for any file size
+SAMPLE_FULL_READ_BYTES = 8 * 1024 * 1024
+
+
+def _read_chunk(data: bytes, meta: CsvMeta, na_values: Sequence[str]) -> pd.DataFrame:
+    if meta.wrapped_in_quotes:
+        data = data.replace(b'"', b"")
+    try:
+        df = pd.read_csv(
+            io.BytesIO(data), sep=meta.delimiter, header=None, names=list(meta.columns),
+            na_values=list(na_values), encoding="utf-8", low_memory=False,
+        )
+    except (pd.errors.ParserError, pd.errors.EmptyDataError, UnicodeDecodeError) as exc:
+        raise CsvFormatError(f"The CSV could not be parsed: {exc}") from exc
+    df.columns = [str(c).strip() for c in df.columns]
+    return df
+
+
+def iter_csv_chunks(
+    path: Path, meta: CsvMeta | None = None, na_values: Sequence[str] = ("?",), chunk_rows: int | None = None
+):
+    """Yield the file as DataFrames of at most `chunk_rows` rows. Peak memory is one chunk, never the whole file
+    (the previous implementation read, copied and parsed the entire file at once: ~800 MB for a 135 MB CSV)."""
+    meta = meta or sniff_csv(path)
+    chunk_rows = chunk_rows or CHUNK_ROWS
+    with open(path, "rb") as fh:
+        if meta.has_header:
+            fh.readline()
+        first = True
+        while True:
+            lines = list(itertools.islice(fh, chunk_rows))
+            if not lines:
+                break
+            data = b"".join(lines)
+            del lines
+            if first and data.startswith(b"\xef\xbb\xbf"):
+                data = data[3:]
+            first = False
+            yield _read_chunk(data, meta, na_values)
+
+
+def sample_rows(path: Path, meta: CsvMeta, na_values: Sequence[str] = ("?",), n: int = 4000) -> pd.DataFrame:
+    """About `n` rows spread evenly over the whole file (used to detect formats without reading all of it)."""
+    size = path.stat().st_size
+    if size <= SAMPLE_FULL_READ_BYTES:
+        return read_csv_frame(path, meta, na_values=na_values)
+    with open(path, "rb") as fh:
+        if meta.has_header:
+            fh.readline()
+        start = fh.tell()
+        span = max(size - start, 1)
+        lines: list[bytes] = []
+        for i in range(n):
+            fh.seek(start + span * i // n)
+            if i:
+                fh.readline()  # drop the partial line we landed in
+            line = fh.readline()
+            if line.strip():
+                lines.append(line if line.endswith(b"\n") else line + b"\n")
+    data = b"".join(lines)
+    if data.startswith(b"\xef\xbb\xbf"):
+        data = data[3:]
+    return _read_chunk(data, meta, na_values)
+
+
 def count_data_rows(path: Path, meta: CsvMeta) -> int:
     lines = 0
     last_byte = b"\n"

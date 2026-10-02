@@ -79,7 +79,11 @@ def test_cannot_publish_a_missing_artifact(client, admin_headers, naive_run):
     with SessionLocal() as db:
         path = db.get(ModelRecord, model["id"]).artifact_path
     import os
+    from sqlalchemy import text
     os.remove(path)
+    with SessionLocal() as db:  # artifacts are also kept in the database and re-downloaded on demand
+        db.execute(text("DELETE FROM file_objects WHERE bucket_name = 'models'"))
+        db.commit()
     r = _publish(client, admin_headers, model["id"])
     assert r.status_code == 409 and "missing" in r.json()["detail"]
     assert client.get(f"/api/admin/datasets/{ds['id']}", headers=admin_headers).json()["status"] == "processed"

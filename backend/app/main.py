@@ -10,7 +10,9 @@ from app.config import get_settings
 from app.database.base import Base
 from app.database.session import engine, get_db
 from app.database import models as _orm_models  # noqa: F401  (register tables)
+from app.services.dataset_service import recover_interrupted_jobs
 from app.services.training_service import mark_interrupted_runs
+from app.utils.resources import rss_mb
 
 
 @asynccontextmanager
@@ -19,6 +21,7 @@ async def lifespan(app: FastAPI):
     settings.ensure_storage_dirs()
     Base.metadata.create_all(engine)  # phase 1: no migrations yet (Alembic is planned for the next phase)
     mark_interrupted_runs()
+    recover_interrupted_jobs()
     yield
 
 
@@ -42,7 +45,7 @@ def create_app() -> FastAPI:
     @app.get("/api/health", tags=["health"])
     def health(db: Session = Depends(get_db)):
         db.execute(text("SELECT 1"))
-        return {"status": "ok"}
+        return {"status": "ok", "rss_mb": rss_mb()}
 
     return app
 

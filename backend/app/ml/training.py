@@ -13,10 +13,8 @@ from app.data.preprocessing import OBSERVED_COL
 from app.features.engineering import FeaturePlan, build_features
 from app.ml.base import ModelFit, ModelSpec, TrainingContext
 from app.ml.baselines import baseline_specs
-from app.ml.classical import classical_specs
 from app.ml.evaluation import evaluate_models
 from app.ml.splitting import SplitInfo, chronological_split
-from app.ml.tabular import tabular_specs
 
 
 @dataclass
@@ -65,6 +63,10 @@ class TrainingOutput:
 
 
 def available_specs(steps_per_day: int, freq_minutes: int) -> dict[str, ModelSpec]:
+    # imported here so the web process does not load statsmodels/scikit-learn/xgboost (~120 MB) until models are needed
+    from app.ml.classical import classical_specs
+    from app.ml.tabular import tabular_specs
+
     specs = baseline_specs(steps_per_day, freq_minutes) + classical_specs() + tabular_specs()
     return {s.name: s for s in specs}
 

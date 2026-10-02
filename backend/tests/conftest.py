@@ -36,7 +36,7 @@ def client():
 @pytest.fixture(autouse=True)
 def _clean_db(client):
     with engine.begin() as conn:
-        conn.execute(text("TRUNCATE users, datasets, features, training_runs, models, forecasts, forecast_values RESTART IDENTITY CASCADE"))
+        conn.execute(text("TRUNCATE users, datasets, features, training_runs, models, forecasts, forecast_values, file_objects RESTART IDENTITY CASCADE"))
     yield
 
 
@@ -88,11 +88,12 @@ def processed_dataset(client, admin_headers, household_slice):
     assert up.status_code == 201, up.text
     ds = up.json()
     assert configure_from_profile(client, admin_headers, ds["id"], ds["schema_profile"]).status_code == 200
-    v = client.post(f"/api/admin/datasets/{ds['id']}/validate", headers=admin_headers)
-    assert v.status_code == 200 and v.json()["status"] == "validated", v.text
-    p = client.post(f"/api/admin/datasets/{ds['id']}/process", headers=admin_headers)
-    assert p.status_code == 200 and p.json()["status"] == "processed", p.text
-    return p.json()
+    from tests.helpers import run_step
+    v = run_step(client, admin_headers, ds["id"], "validate")
+    assert v["status"] == "validated", v
+    p = run_step(client, admin_headers, ds["id"], "process")
+    assert p["status"] == "processed", p
+    return p
 
 
 @pytest.fixture

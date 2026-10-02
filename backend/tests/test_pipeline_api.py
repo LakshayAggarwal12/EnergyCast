@@ -91,9 +91,10 @@ def test_electricity_csv_without_timestamps_is_rejected(client, admin_headers, e
     d = r.json()
     assert d["schema_profile"]["csv"]["has_header"] is False
     assert d["schema_profile"]["suggested_config"]["timestamp_columns"] == []
-    v = client.post(f"/api/admin/datasets/{d['id']}/validate", headers=admin_headers)
-    assert v.status_code == 200 and v.json()["status"] == "rejected"
-    codes = {e["code"] for e in v.json()["validation_report"]["errors"]}
+    from tests.helpers import run_step
+    v = run_step(client, admin_headers, d["id"], "validate")
+    assert v["status"] == "rejected"
+    codes = {e["code"] for e in v["validation_report"]["errors"]}
     assert "missing_timestamp" in codes
     assert client.post(f"/api/admin/datasets/{d['id']}/process", headers=admin_headers).status_code == 409
 
@@ -141,5 +142,6 @@ def test_config_validation_errors(client, admin_headers, household_slice):
     assert client.put(f"/api/admin/datasets/{d['id']}", headers=admin_headers, json={**base, "frequency": "7min"}).status_code == 422
     r = client.put(f"/api/admin/datasets/{d['id']}", headers=admin_headers, json={**base, "frequency": "1h"})
     assert r.status_code == 200
-    v = client.post(f"/api/admin/datasets/{d['id']}/validate", headers=admin_headers).json()
+    from tests.helpers import run_step
+    v = run_step(client, admin_headers, d["id"], "validate")
     assert v["status"] == "rejected" and any(e["code"] == "frequency_mismatch" for e in v["validation_report"]["errors"])

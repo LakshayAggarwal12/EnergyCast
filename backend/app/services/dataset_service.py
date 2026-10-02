@@ -365,3 +365,79 @@ def compute_eda(db: Session, dataset: Dataset) -> dict:
         return build_eda(frame, target, exogenous)
     except ValueError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc))
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Background entry points. They open their OWN database session (the request's session is closed once the response
+# has been sent) and run one heavy task at a time, so two jobs can never add up past a 512 MB instance limit.
+def run_validation_job(dataset_id: int) -> None:
+    from app.database.session import SessionLocal
+    from app.utils.resources import heavy_job
+
+    with heavy_job(f"validate:{dataset_id}"), SessionLocal() as db:
+        dataset = db.get(Dataset, dataset_id)
+        if dataset is None:
+            return
+        try:
+            run_validation(db, dataset)
+        except Exception:  # the failure is already recorded on the dataset; log it for the Render log stream
+            import traceback
+
+            traceback.print_exc()
+
+
+def run_processing_job(dataset_id: int) -> None:
+    from app.database.session import SessionLocal
+    from app.utils.resources import heavy_job
+
+    with heavy_job(f"process:{dataset_id}"), SessionLocal() as db:
+        dataset = db.get(Dataset, dataset_id)
+        if dataset is None:
+            return
+        try:
+            run_processing(db, dataset)
+        except Exception:
+            import traceback
+
+            traceback.print_exc()
+
+
+def recover_interrupted_jobs() -> int:
+    """Datasets left 'validating' / 'processing' by a crash or restart can never finish: put them back one step so
+    the admin can simply click the button again (instead of being stuck until a manual reset)."""
+    from app.database.session import SessionLocal
+
+    note = "Interrupted: the server restarted (for example after running out of memory) while this step was running. Run it again."
+    fixed = 0
+    with SessionLocal() as db:
+        for d in db.scalars(select(Dataset).where(Dataset.status.in_([DatasetStatus.VALIDATING, DatasetStatus.PROCESSING]))):
+            if d.status == DatasetStatus.VALIDATING:
+                d.status = DatasetStatus.CONFIGURED if (d.config or {}).get("timestamp_columns") else DatasetStatus.UPLOADED
+                d.validation_report = {"passed": False, "errors": [{"code": "interrupted", "message": note}], "warnings": [], "checks": {}, "derived": {}}
+            else:
+                d.status = DatasetStatus.VALIDATED
+                d.preprocessing_report = {"error": note, "passed": False}
+            fixed += 1
+        db.commit()
+    return fixed
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Synchronous preconditions. The API calls these BEFORE it flips the dataset into 'validating'/'processing', so a
+# request that cannot run is refused with a clear 409 and the dataset keeps its current state (previously the check
+# ran inside the background job, after the status had already been overwritten, which could knock a published
+# dataset out of 'published').
+def precheck_validation(db: Session, dataset: Dataset) -> None:
+    _guard_not_published(dataset)
+    if not (dataset.config or {}).get("timestamp_columns"):
+        suggested = (dataset.schema_profile or {}).get("suggested_config", {})
+        if suggested.get("timestamp_columns") and suggested.get("target_column"):
+            raise HTTPException(status.HTTP_409_CONFLICT, "Configure the dataset (timestamp and target columns) before validating.")
+    _guard_no_active_run(db, dataset)
+
+
+def precheck_processing(db: Session, dataset: Dataset) -> None:
+    _guard_not_published(dataset)
+    if dataset.status not in (DatasetStatus.VALIDATED, DatasetStatus.PROCESSED):
+        raise HTTPException(status.HTTP_409_CONFLICT, "Only validated datasets can be processed. Validate the dataset first.")
+    _guard_no_active_run(db, dataset)

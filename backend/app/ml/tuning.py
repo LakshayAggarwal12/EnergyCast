@@ -54,13 +54,14 @@ def search_sklearn(
 
 def random_forest_grid(random_state: int) -> list[dict[str, Any]]:
     return [
-        {"n_estimators": 200, "max_depth": 12, "min_samples_leaf": 2, "max_features": 0.5, "random_state": random_state},
-        {"n_estimators": 300, "max_depth": None, "min_samples_leaf": 2, "max_features": 0.5, "random_state": random_state},
+        # bounded trees: an unlimited-depth 300-tree forest needs ~550 MB, more than a 512 MB instance has
+        {"n_estimators": 150, "max_depth": 10, "min_samples_leaf": 3, "max_features": 0.5, "random_state": random_state},
+        {"n_estimators": 150, "max_depth": 14, "min_samples_leaf": 5, "max_features": 0.5, "random_state": random_state},
     ]
 
 
 def fit_random_forest(params: dict[str, Any]) -> RandomForestRegressor:
-    return RandomForestRegressor(n_jobs=-1, **params)
+    return RandomForestRegressor(n_jobs=1, **params)
 
 
 def xgboost_grid(random_state: int) -> list[dict[str, Any]]:
@@ -73,7 +74,7 @@ def xgboost_grid(random_state: int) -> list[dict[str, Any]]:
 def fit_xgboost(ctx: TrainingContext, params: dict[str, Any]) -> xgb.XGBRegressor:
     model = xgb.XGBRegressor(
         n_estimators=600, subsample=0.8, colsample_bytree=0.8, objective="reg:squarederror",
-        eval_metric="mae", early_stopping_rounds=40, tree_method="hist", n_jobs=-1, **params,
+        eval_metric="mae", early_stopping_rounds=40, tree_method="hist", n_jobs=1, **params,
     )
     model.fit(
         ctx.X[ctx.train_rows], ctx.y[ctx.train_rows],

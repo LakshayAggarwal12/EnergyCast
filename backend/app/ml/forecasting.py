@@ -14,7 +14,6 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-from statsmodels.tsa.statespace.sarimax import SARIMAX
 
 from app.features.engineering import FeaturePlan, build_features
 from app.utils.frequency import minutes_to_alias
@@ -70,13 +69,15 @@ def _sarimax(payload: dict[str, Any], y: pd.Series, horizon: int) -> np.ndarray:
     window = y.iloc[-int(payload["fit_window_steps"]):].to_numpy(dtype="float64")
     if np.isnan(window).all():
         raise ForecastError("There are no recent observations to forecast from.")
+    from statsmodels.tsa.statespace.sarimax import SARIMAX  # imported on demand: keeps API start-up memory low
+
     model = SARIMAX(
         window, order=tuple(payload["order"]), seasonal_order=tuple(payload["seasonal_order"]),
         trend=payload["trend"], enforce_stationarity=False, enforce_invertibility=False,
     )
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        result = model.smooth(np.asarray(payload["params"], dtype="float64"))
+        result = model.filter(np.asarray(payload["params"], dtype="float64"), low_memory=True)  # smooth() kept ~1 GB of Kalman history
         return np.asarray(result.forecast(steps=horizon), dtype="float64")
 
 

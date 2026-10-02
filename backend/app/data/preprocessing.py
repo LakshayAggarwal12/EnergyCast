@@ -1,4 +1,8 @@
-"""Cleaning and resampling with Pandas/NumPy. Every step is counted in a report; nothing is dropped silently."""
+"""Cleaning and resampling with Pandas/NumPy. Every step is counted in a report; nothing is dropped silently.
+
+Memory-safe: the CSV is streamed in chunks and aggregated into per-bin sums and counts as it is read, so the
+full-resolution table (2 million rows for minute data) is never held in memory. The result is identical to
+resampling the whole file at once."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -7,7 +11,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from app.data.loader import CsvMeta, read_csv_frame
+from app.data.loader import CsvMeta, iter_csv_chunks, sample_rows
 from app.data.timestamps import parse_timestamps
 from app.utils.frequency import minutes_to_alias
 
@@ -46,6 +50,92 @@ def resample_to_modeling_grid(
     return means.where(coverage >= min_valid_fraction)
 
 
+def _stream_to_modeling_grid(
+    path: Path, config: dict[str, Any], derived: dict[str, Any], columns: list[str],
+    native_minutes: int, modeling_minutes: int, min_valid_fraction: float,
+) -> tuple[pd.DataFrame, int, int, bool, int]:
+    """Read the CSV in chunks and return (modeling-grid frame, raw rows, unparseable timestamps, was_sorted,
+    duplicate timestamps averaged). Duplicate timestamps are averaged when they are adjacent (always the case in
+    chronologically ordered files, including across chunk boundaries)."""
+    meta = CsvMeta.from_dict(config["csv_meta"])
+    na_values = config.get("na_values") or ["?"]
+    ts_cols: list[str] = config["timestamp_columns"]
+    fmt = derived.get("datetime_format")
+    if not fmt:
+        _, fmt = parse_timestamps(sample_rows(path, meta, na_values), ts_cols, None)
+
+    same = modeling_minutes == native_minutes
+    alias = minutes_to_alias(modeling_minutes)
+    per_bin = max(modeling_minutes // native_minutes, 1)
+
+    acc_sum: pd.DataFrame | None = None
+    acc_cnt: pd.DataFrame | None = None
+    kept: list[pd.DataFrame] = []              # only used when no aggregation is needed (native == modeling)
+    rows_raw = bad_ts = dups = 0
+    was_sorted = True
+    prev_max: pd.Timestamp | None = None
+    carry: pd.DataFrame | None = None
+
+    def fold(part: pd.DataFrame) -> None:
+        nonlocal acc_sum, acc_cnt, dups
+        if part.empty:
+            return
+        dup_mask = part.index.duplicated()
+        if dup_mask.any():
+            dups += int(dup_mask.sum())
+            part = part.groupby(level=0).mean()
+        if same:
+            kept.append(part)
+            return
+        grouped = part.groupby(part.index.floor(alias))
+        s_, c_ = grouped.sum(), grouped.count()
+        acc_sum = s_ if acc_sum is None else acc_sum.add(s_, fill_value=0.0)
+        acc_cnt = c_ if acc_cnt is None else acc_cnt.add(c_, fill_value=0)
+
+    for chunk in iter_csv_chunks(path, meta, na_values):
+        rows_raw += len(chunk)
+        ts, _ = parse_timestamps(chunk, ts_cols, fmt)
+        vals = pd.DataFrame({c: pd.to_numeric(chunk[c], errors="coerce").astype("float64") for c in columns})
+        vals.index = pd.DatetimeIndex(ts.to_numpy(), name="timestamp")
+        del chunk, ts
+        ok = vals.index.notna()
+        bad_ts += int((~ok).sum())
+        part = vals[ok]
+        del vals
+        if len(part):
+            idx = part.index
+            if not idx.is_monotonic_increasing or (prev_max is not None and idx[0] < prev_max):
+                was_sorted = False
+            prev_max = idx.max() if prev_max is None else max(prev_max, idx.max())
+            if carry is not None:
+                part, carry = pd.concat([carry, part]), None
+            boundary = part.index == part.index[-1]      # rows sharing the last timestamp may continue in the next chunk
+            carry, part = part[boundary], part[~boundary]
+        fold(part)
+    if carry is not None:
+        fold(carry)
+
+    if same:
+        if not kept:
+            raise PreprocessingError("The file contains no rows with a valid timestamp.")
+        frame = pd.concat(kept)
+        del kept
+        cross = frame.index.duplicated()
+        if cross.any():
+            dups += int(cross.sum())
+            frame = frame.groupby(level=0).mean()
+        frame = frame.sort_index().asfreq(minutes_to_alias(native_minutes))
+    else:
+        if acc_sum is None or acc_cnt is None:
+            raise PreprocessingError("The file contains no rows with a valid timestamp.")
+        means = acc_sum / acc_cnt.where(acc_cnt > 0)
+        coverage = acc_cnt / per_bin
+        means = means.where(coverage >= min_valid_fraction).sort_index()
+        frame = means.reindex(pd.date_range(means.index[0], means.index[-1], freq=alias))
+    frame.index.name = "timestamp"
+    return frame, rows_raw, bad_ts, was_sorted, dups
+
+
 def preprocess_dataset(path: Path, config: dict[str, Any]) -> tuple[pd.DataFrame, dict[str, Any]]:
     derived = config.get("derived")
     if not derived:
@@ -58,35 +148,19 @@ def preprocess_dataset(path: Path, config: dict[str, Any]) -> tuple[pd.DataFrame
     min_valid_fraction = float(config.get("min_valid_fraction", 0.5))
     max_interp = int(config.get("max_interpolation_steps", 6))
 
-    df = read_csv_frame(path, CsvMeta.from_dict(config["csv_meta"]), na_values=config.get("na_values") or ["?"])
-    rows_raw = int(len(df))
-    ts, _ = parse_timestamps(df, ts_cols, derived.get("datetime_format"))
-
     columns = [target] + exogenous
-    frame = pd.DataFrame({c: pd.to_numeric(df[c], errors="coerce").astype("float64") for c in columns})
-    frame.index = pd.DatetimeIndex(ts.to_numpy(), name="timestamp")
-    del df
-
-    report: dict[str, Any] = {"rows_raw": rows_raw}
-    bad_ts = int(frame.index.isna().sum())
-    frame = frame[frame.index.notna()]
-    report["dropped_unparseable_timestamps"] = bad_ts
-
-    report["was_sorted"] = bool(frame.index.is_monotonic_increasing)
-    frame = frame.sort_index()
-
-    dups = int(frame.index.duplicated().sum())
-    report["duplicate_timestamps_averaged"] = dups
-    if dups:
-        frame = frame.groupby(level=0).mean()
-
     native_alias = minutes_to_alias(native_minutes)
     modeling_alias = minutes_to_alias(modeling_minutes)
+    frame, rows_raw, bad_ts, was_sorted, dups = _stream_to_modeling_grid(
+        path, config, derived, columns, native_minutes, modeling_minutes, min_valid_fraction
+    )
+    report: dict[str, Any] = {"rows_raw": rows_raw}
+    report["dropped_unparseable_timestamps"] = bad_ts
+    report["was_sorted"] = was_sorted
+    report["duplicate_timestamps_averaged"] = dups
     if modeling_minutes == native_minutes:
-        frame = frame.asfreq(native_alias)
         method = "reindexed to a complete regular grid (no aggregation)"
     else:
-        frame = resample_to_modeling_grid(frame, native_minutes, modeling_minutes, min_valid_fraction)
         method = (
             f"mean over each {modeling_alias} bin; bins with < {min_valid_fraction:.0%} valid native "
             f"observations set to missing"

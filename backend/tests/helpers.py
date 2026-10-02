@@ -32,3 +32,15 @@ def train_and_wait(client, headers, dataset_id, models=None, timeout=180):
             return run
         time.sleep(1)
     raise AssertionError("training did not finish in time")
+
+
+def run_step(client, headers, ds_id, action, timeout=180):
+    """Validate / process run as background jobs (the API answers 202); wait until the dataset leaves the busy state."""
+    r = client.post(f"/api/admin/datasets/{ds_id}/{action}", headers=headers)
+    assert r.status_code in (200, 202), r.text
+    for _ in range(timeout):
+        d = client.get(f"/api/admin/datasets/{ds_id}", headers=headers).json()
+        if d["status"] not in ("validating", "processing"):
+            return d
+        time.sleep(1)
+    raise AssertionError(f"{action} did not finish in time")

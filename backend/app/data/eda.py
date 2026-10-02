@@ -5,7 +5,6 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-from statsmodels.tsa.stattools import acf as sm_acf
 
 from app.data.preprocessing import OBSERVED_COL
 
@@ -74,6 +73,8 @@ def build_eda(frame: pd.DataFrame, target: str, exogenous: list[str] | None = No
     month = series.groupby(idx.month).mean()
 
     nlags = int(min(168, max(24, len(finite) // 4)))
+    from statsmodels.tsa.stattools import acf as sm_acf  # imported on demand (keeps start-up memory low)
+
     acf_vals = sm_acf(finite, nlags=nlags, fft=True, missing="conservative")
     acf_points = [{"lag": int(i), "y": _num(v)} for i, v in enumerate(acf_vals)]
 

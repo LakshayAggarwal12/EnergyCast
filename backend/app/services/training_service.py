@@ -10,9 +10,6 @@ from typing import Any
 import joblib
 import numpy as np
 import pandas as pd
-import sklearn
-import statsmodels
-import xgboost
 from fastapi import HTTPException, status
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
@@ -86,6 +83,8 @@ def _set_stage(run_id: int, stage: str) -> None:
 
 
 def _save_artifact(dir_: Path, outcome, cfg: TrainingConfig, feature_columns: list[str], trained_range: dict) -> str:
+    import sklearn, statsmodels, xgboost  # noqa: E401  (imported on demand to keep the web process small)
+
     dir_.mkdir(parents=True, exist_ok=True)
     path = dir_ / f"{outcome.name}.joblib"
     bundle = {
@@ -107,6 +106,14 @@ def _save_artifact(dir_: Path, outcome, cfg: TrainingConfig, feature_columns: li
 
 
 def execute_run(run_id: int) -> None:
+    """Background task entry point: waits for any other heavy job (validate / process / train) to finish first."""
+    from app.utils.resources import heavy_job
+
+    with heavy_job(f"train:{run_id}"):
+        _execute_run(run_id)
+
+
+def _execute_run(run_id: int) -> None:
     """Background task: owns its DB sessions (the request session is closed by then)."""
     settings = get_settings()
     with SessionLocal() as db:
