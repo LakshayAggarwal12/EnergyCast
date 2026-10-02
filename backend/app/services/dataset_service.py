@@ -1,4 +1,5 @@
 """Dataset lifecycle: upload -> inspect -> configure -> validate -> process -> delete."""
+
 from __future__ import annotations
 
 import hashlib
@@ -15,16 +16,38 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.data.eda import build_eda
 from app.data.loader import CsvFormatError, sniff_csv
-from app.data.preprocessing import PreprocessingError, load_processed, preprocess_dataset, save_processed
+from app.data.preprocessing import (
+    PreprocessingError,
+    load_processed,
+    preprocess_dataset,
+    save_processed,
+)
 from app.data.profile import build_profile
 from app.data.validator import validate_dataset
-from app.database.models import Dataset, DatasetStatus, Feature, RunStatus, TrainingRun, User
+from app.database.models import (
+    Dataset,
+    DatasetStatus,
+    Feature,
+    RunStatus,
+    TrainingRun,
+    User,
+)
 from app.features.engineering import default_lags_and_windows
 from app.schemas.dataset import DatasetConfigIn, FeatureToggle
-from app.utils.frequency import FrequencyError, freq_to_minutes, minutes_to_alias
-from app.services.storage import upload_file_to_db, download_file_from_db, delete_file_from_db
+from app.services.storage import (
+    delete_file_from_db,
+    download_file_from_db,
+    upload_file_to_db,
+)
+from app.utils.frequency import (
+    FrequencyError,
+    freq_to_minutes,
+    minutes_to_alias,
+)
+
 
 UPLOAD_CHUNK = 1024 * 1024
+
 ENGINEERED_FEATURES = [
     ("calendar", "Calendar (hour, weekday, month, season, weekend)", "calendar"),
     ("target_lags", "Target lags (>= forecast horizon)", "lag"),
@@ -33,15 +56,20 @@ ENGINEERED_FEATURES = [
 
 
 def _safe_display_name(filename: str | None) -> str:
-    name = Path(filename or "upload.csv").name  # strips any client-supplied directory parts
+    name = Path(filename or "upload.csv").name
     name = re.sub(r"[^\w.\- ()]", "_", name)
     return name[:255] or "upload.csv"
 
 
 def _get_dataset(db: Session, dataset_id: int) -> Dataset:
     dataset = db.get(Dataset, dataset_id)
+
     if dataset is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Dataset not found.")
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            "Dataset not found.",
+        )
+
     return dataset
 
 
@@ -50,21 +78,33 @@ def get_dataset_or_404(db: Session, dataset_id: int) -> Dataset:
 
 
 def _has_active_run(db: Session, dataset_id: int) -> bool:
-    return db.scalar(
-        select(TrainingRun.id).where(TrainingRun.dataset_id == dataset_id, TrainingRun.status.in_(RunStatus.ACTIVE)).limit(1)
-    ) is not None
+    return (
+        db.scalar(
+            select(TrainingRun.id)
+            .where(
+                TrainingRun.dataset_id == dataset_id,
+                TrainingRun.status.in_(RunStatus.ACTIVE),
+            )
+            .limit(1)
+        )
+        is not None
+    )
 
 
 def _guard_no_active_run(db: Session, dataset: Dataset) -> None:
     if _has_active_run(db, dataset.id):
-        raise HTTPException(status.HTTP_409_CONFLICT, "A training run is in progress for this dataset.")
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "A training run is in progress for this dataset.",
+        )
 
 
 def _guard_not_published(dataset: Dataset) -> None:
     if dataset.status == DatasetStatus.PUBLISHED:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
-            "This dataset is published. Unpublish it before changing its configuration, re-validating, re-processing or deleting it.",
+            "This dataset is published. Unpublish it before changing "
+            "its configuration, re-validating, re-processing or deleting it.",
         )
 
 
@@ -74,92 +114,208 @@ def _remove_file(path: str | None) -> None:
 
 
 # ---------------------------------------------------------------------------------------------------
-def register_upload(db: Session, admin: User, upload: UploadFile, name: str, energy_type: str) -> Dataset:
+# Upload
+
+
+def register_upload(
+    db: Session,
+    admin: User,
+    upload: UploadFile,
+    name: str,
+    energy_type: str,
+) -> Dataset:
     settings = get_settings()
+
     filename = upload.filename or ""
+
     if not filename.lower().endswith(".csv"):
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Only .csv files are supported.")
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "Only .csv files are supported.",
+        )
+
     if not name.strip() or not energy_type.strip():
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "name and energy_type are required.")
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "name and energy_type are required.",
+        )
 
     settings.ensure_storage_dirs()
-    dest = settings.raw_dir / f"{uuid.uuid4().hex}.csv"  # server-generated name: no path traversal possible
+
+    dest = settings.raw_dir / f"{uuid.uuid4().hex}.csv"
+
     digest = hashlib.sha256()
     size = 0
+
     try:
         with open(dest, "wb") as out:
             while chunk := upload.file.read(UPLOAD_CHUNK):
                 size += len(chunk)
+
                 if size > settings.max_upload_bytes:
                     raise HTTPException(
-                        status.HTTP_413_CONTENT_TOO_LARGE, f"File exceeds the {settings.MAX_UPLOAD_MB} MB upload limit."
+                        status.HTTP_413_CONTENT_TOO_LARGE,
+                        f"File exceeds the {settings.MAX_UPLOAD_MB} MB upload limit.",
                     )
+
                 digest.update(chunk)
                 out.write(chunk)
+
         if size == 0:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "The uploaded file is empty.")
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                "The uploaded file is empty.",
+            )
+
         na_values = ["?"]
+
         meta = sniff_csv(dest)
         profile = build_profile(dest, meta, na_values)
+
     except CsvFormatError as exc:
         dest.unlink(missing_ok=True)
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc))
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            str(exc),
+        )
+
     except Exception:
         dest.unlink(missing_ok=True)
         raise
 
     dataset = Dataset(
-        name=name.strip(), energy_type=energy_type.strip(), original_filename=_safe_display_name(filename),
-        file_path=str(dest), file_size_bytes=size, sha256=digest.hexdigest(), status=DatasetStatus.UPLOADED,
-        config={"csv_meta": meta.to_dict()}, schema_profile=profile, uploaded_by=admin.id,
+        name=name.strip(),
+        energy_type=energy_type.strip(),
+        original_filename=_safe_display_name(filename),
+        file_path=str(dest),
+        file_size_bytes=size,
+        sha256=digest.hexdigest(),
+        status=DatasetStatus.UPLOADED,
+        config={"csv_meta": meta.to_dict()},
+        schema_profile=profile,
+        uploaded_by=admin.id,
     )
+
     db.add(dataset)
     db.commit()
-    upload_file_to_db(db, "datasets", dest)
+
+    upload_file_to_db(
+        db,
+        "datasets",
+        dest,
+    )
+
     db.refresh(dataset)
+
     return dataset
 
 
-def _sync_features(dataset: Dataset, exogenous: list[str]) -> None:
-    """Feature rows = engineered groups + one row per exogenous column. Existing enabled flags are kept."""
-    existing = {f.name: f for f in dataset.features}
+# ---------------------------------------------------------------------------------------------------
+# Configuration
+
+
+def _sync_features(
+    dataset: Dataset,
+    exogenous: list[str],
+) -> None:
+    """Feature rows = engineered groups + one row per exogenous column."""
+
+    existing = {
+        f.name: f
+        for f in dataset.features
+    }
+
     wanted: list[tuple[str, str, str]] = list(ENGINEERED_FEATURES) + [
-        (c, f"{c} (lagged by the forecast horizon)", "exogenous") for c in exogenous
+        (
+            column,
+            f"{column} (lagged by the forecast horizon)",
+            "exogenous",
+        )
+        for column in exogenous
     ]
-    wanted_names = {w[0] for w in wanted}
+
+    wanted_names = {
+        item[0]
+        for item in wanted
+    }
+
     for feature in list(dataset.features):
         if feature.name not in wanted_names:
             dataset.features.remove(feature)
-    for name, display, ftype in wanted:
+
+    for name, display, feature_type in wanted:
         if name not in existing:
-            dataset.features.append(Feature(name=name, display_name=display, feature_type=ftype, enabled=True))
+            dataset.features.append(
+                Feature(
+                    name=name,
+                    display_name=display,
+                    feature_type=feature_type,
+                    enabled=True,
+                )
+            )
 
 
-def apply_config(db: Session, dataset: Dataset, cfg: DatasetConfigIn) -> Dataset:
+def apply_config(
+    db: Session,
+    dataset: Dataset,
+    cfg: DatasetConfigIn,
+) -> Dataset:
     _guard_not_published(dataset)
     _guard_no_active_run(db, dataset)
-    columns = [c["name"] for c in (dataset.schema_profile or {}).get("columns", [])]
-    referenced = cfg.timestamp_columns + [cfg.target_column] + cfg.exogenous_columns
-    missing = [c for c in referenced if c not in columns]
+
+    columns = [
+        c["name"]
+        for c in (dataset.schema_profile or {}).get("columns", [])
+    ]
+
+    referenced = (
+        cfg.timestamp_columns
+        + [cfg.target_column]
+        + cfg.exogenous_columns
+    )
+
+    missing = [
+        column
+        for column in referenced
+        if column not in columns
+    ]
+
     if missing:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, f"Unknown column(s): {', '.join(missing)}.")
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            f"Unknown column(s): {', '.join(missing)}.",
+        )
 
     native_alias = None
+
     try:
         if cfg.frequency:
-            native_alias = minutes_to_alias(freq_to_minutes(cfg.frequency))
+            native_alias = minutes_to_alias(
+                freq_to_minutes(cfg.frequency)
+            )
+
         if cfg.modeling_frequency:
             freq_to_minutes(cfg.modeling_frequency)
+
     except FrequencyError as exc:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc))
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            str(exc),
+        )
 
     if cfg.name:
         dataset.name = cfg.name
+
     if cfg.energy_type:
         dataset.energy_type = cfg.energy_type
-    dataset.timestamp_column = ",".join(cfg.timestamp_columns)
+
+    dataset.timestamp_column = ",".join(
+        cfg.timestamp_columns
+    )
+
     dataset.target_column = cfg.target_column
     dataset.frequency = native_alias
+
     dataset.config = {
         "csv_meta": dataset.config["csv_meta"],
         "timestamp_columns": cfg.timestamp_columns,
@@ -175,269 +331,939 @@ def apply_config(db: Session, dataset: Dataset, cfg: DatasetConfigIn) -> Dataset
         "train_ratio": cfg.train_ratio,
         "val_ratio": cfg.val_ratio,
     }
-    # a configuration change invalidates everything derived from the previous one
+
     _remove_file(dataset.processed_path)
+
     dataset.processed_path = None
     dataset.validation_report = None
     dataset.preprocessing_report = None
-    dataset.row_count = dataset.start_timestamp = dataset.end_timestamp = None
+
+    dataset.row_count = None
+    dataset.start_timestamp = None
+    dataset.end_timestamp = None
+
     dataset.status = DatasetStatus.CONFIGURED
-    _sync_features(dataset, cfg.exogenous_columns)
+
+    _sync_features(
+        dataset,
+        cfg.exogenous_columns,
+    )
+
     db.commit()
     db.refresh(dataset)
+
     return dataset
 
 
-def update_features(db: Session, dataset: Dataset, toggles: list[FeatureToggle]) -> Dataset:
+def update_features(
+    db: Session,
+    dataset: Dataset,
+    toggles: list[FeatureToggle],
+) -> Dataset:
     _guard_no_active_run(db, dataset)
-    by_name = {f.name: f for f in dataset.features}
-    unknown = [t.name for t in toggles if t.name not in by_name]
+
+    by_name = {
+        f.name: f
+        for f in dataset.features
+    }
+
+    unknown = [
+        t.name
+        for t in toggles
+        if t.name not in by_name
+    ]
+
     if unknown:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, f"Unknown feature(s): {', '.join(unknown)}.")
-    for t in toggles:
-        by_name[t.name].enabled = t.enabled
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            f"Unknown feature(s): {', '.join(unknown)}.",
+        )
+
+    for toggle in toggles:
+        by_name[toggle.name].enabled = toggle.enabled
+
     db.commit()
     db.refresh(dataset)
+
     return dataset
 
 
-def run_validation(db: Session, dataset: Dataset) -> Dataset:
-    """Run validation - can be called synchronously or as a background task."""
-    # For background tasks, we need to refresh the dataset from the DB
-    if dataset.id:
-        dataset = db.get(Dataset, dataset.id) or dataset
-    
+# ---------------------------------------------------------------------------------------------------
+# Validation helpers
+
+
+def _get_validation_config(dataset: Dataset) -> dict:
+    config = dict(dataset.config or {})
+
+    if not config.get("timestamp_columns"):
+        suggested = (
+            dataset.schema_profile or {}
+        ).get("suggested_config", {})
+
+        if suggested.get("timestamp_columns") and suggested.get(
+            "target_column"
+        ):
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "Configure the dataset (timestamp and target columns) "
+                "before validating.",
+            )
+
+        config.update(
+            {
+                k: v
+                for k, v in suggested.items()
+                if k != "datetime_format"
+            }
+        )
+
+    return config
+
+
+def _save_validation_result(
+    db: Session,
+    dataset_id: int,
+    report: dict,
+) -> Dataset | None:
+    dataset = db.get(Dataset, dataset_id)
+
+    if dataset is None:
+        return None
+
+    derived = report.get("derived") or {}
+
+    dataset.validation_report = report
+    dataset.preprocessing_report = None
+
+    _remove_file(dataset.processed_path)
+    dataset.processed_path = None
+
+    if report["passed"]:
+        dataset.status = DatasetStatus.VALIDATED
+
+        dataset.config = {
+            **(dataset.config or {}),
+            "derived": derived,
+        }
+
+        dataset.frequency = derived.get("native_frequency")
+        dataset.row_count = derived.get("rows")
+
+        dataset.start_timestamp = (
+            pd.Timestamp(
+                derived["start"]
+            ).to_pydatetime()
+            if derived.get("start")
+            else None
+        )
+
+        dataset.end_timestamp = (
+            pd.Timestamp(
+                derived["end"]
+            ).to_pydatetime()
+            if derived.get("end")
+            else None
+        )
+
+    else:
+        dataset.status = DatasetStatus.REJECTED
+
+        dataset.config = {
+            k: v
+            for k, v in (dataset.config or {}).items()
+            if k != "derived"
+        }
+
+    db.commit()
+    db.refresh(dataset)
+
+    return dataset
+
+
+def run_validation(
+    db: Session,
+    dataset: Dataset,
+) -> Dataset:
+    """
+    Synchronous compatibility version.
+
+    Prefer run_validation_job() for background execution because
+    run_validation_job() deliberately closes the DB session before
+    the expensive validation step.
+    """
+
+    dataset = db.get(Dataset, dataset.id) or dataset
+
+    _guard_not_published(dataset)
+    _guard_no_active_run(db, dataset)
+
+    config = _get_validation_config(dataset)
+
+    file_path = Path(dataset.file_path)
+
+    if not file_path.exists():
+        download_file_from_db(
+            db,
+            "datasets",
+            file_path.name,
+            dataset.file_path,
+        )
+
+    if not file_path.exists():
+        raise FileNotFoundError(
+            f"Dataset file not found: {dataset.file_path}"
+        )
+
     try:
-        _guard_not_published(dataset)
-        _guard_no_active_run(db, dataset)
-        config = dataset.config
-        if not config.get("timestamp_columns"):
-            # Not configured yet. If the upload inspection found usable timestamp + target columns, the admin must
-            # confirm them first. If it did not, the file cannot be configured meaningfully: reject it with the reasons.
-            suggested = (dataset.schema_profile or {}).get("suggested_config", {})
-            if suggested.get("timestamp_columns") and suggested.get("target_column"):
-                raise HTTPException(
-                    status.HTTP_409_CONFLICT, "Configure the dataset (timestamp and target columns) before validating."
-                )
-            config = {**config, **{k: v for k, v in suggested.items() if k != "datetime_format"}}
-        
-        # Download file from database
-        file_path = Path(dataset.file_path)
-        if not file_path.exists():
-            download_file_from_db(db, "datasets", file_path.name, dataset.file_path)
-        
-        # Check if file exists after download attempt
-        if not file_path.exists():
-            raise FileNotFoundError(f"Dataset file not found: {dataset.file_path}")
-        
-        # Validate
-        report = validate_dataset(file_path, config)
-        derived = report.get("derived") or {}
-        dataset.validation_report = report
-        dataset.preprocessing_report = None
-        _remove_file(dataset.processed_path)
-        dataset.processed_path = None
-        if report["passed"]:
-            dataset.status = DatasetStatus.VALIDATED
-            dataset.config = {**dataset.config, "derived": derived}
-            dataset.frequency = derived.get("native_frequency")
-            dataset.row_count = derived.get("rows")
-            dataset.start_timestamp = pd.Timestamp(derived["start"]).to_pydatetime() if derived.get("start") else None
-            dataset.end_timestamp = pd.Timestamp(derived["end"]).to_pydatetime() if derived.get("end") else None
-        else:
-            dataset.status = DatasetStatus.REJECTED
-            dataset.config = {k: v for k, v in dataset.config.items() if k != "derived"}
-        db.commit()
-        db.refresh(dataset)
-        
-        # Clean up downloaded file to save space
-        if file_path.exists():
-            file_path.unlink(missing_ok=True)
-        
-        return dataset
+        report = validate_dataset(
+            file_path,
+            config,
+        )
+
+        result = _save_validation_result(
+            db,
+            dataset.id,
+            report,
+        )
+
+        file_path.unlink(missing_ok=True)
+
+        return result or dataset
+
     except Exception as exc:
         db.rollback()
-        # Update status to rejected with error
+
+        dataset = db.get(Dataset, dataset.id) or dataset
+
         dataset.status = DatasetStatus.REJECTED
         dataset.validation_report = {
             "passed": False,
-            "errors": [{"code": "validation_error", "message": str(exc)}],
+            "errors": [
+                {
+                    "code": "validation_error",
+                    "message": str(exc),
+                }
+            ],
             "warnings": [],
             "checks": {},
             "derived": {},
         }
+
         db.commit()
+
         raise
 
 
-def run_processing(db: Session, dataset: Dataset) -> Dataset:
-    """Run processing - can be called synchronously or as a background task."""
-    # For background tasks, we need to refresh the dataset from the DB
-    if dataset.id:
-        dataset = db.get(Dataset, dataset.id) or dataset
-    
+# ---------------------------------------------------------------------------------------------------
+# Processing helpers
+
+
+def _save_processing_result(
+    db: Session,
+    dataset_id: int,
+    out_path: Path,
+    report: dict,
+) -> Dataset | None:
+    dataset = db.get(Dataset, dataset_id)
+
+    if dataset is None:
+        return None
+
+    dataset.processed_path = str(out_path)
+    dataset.preprocessing_report = report
+    dataset.status = DatasetStatus.PROCESSED
+
+    db.commit()
+
+    upload_file_to_db(
+        db,
+        "datasets",
+        out_path,
+    )
+
+    db.refresh(dataset)
+
+    return dataset
+
+
+def run_processing(
+    db: Session,
+    dataset: Dataset,
+) -> Dataset:
+    """
+    Synchronous compatibility version.
+
+    Prefer run_processing_job() for background execution because
+    run_processing_job() closes the DB session before preprocessing.
+    """
+
+    dataset = db.get(Dataset, dataset.id) or dataset
+
+    _guard_not_published(dataset)
+
+    if dataset.status not in (
+        DatasetStatus.VALIDATED,
+        DatasetStatus.PROCESSED,
+        DatasetStatus.PROCESSING,
+    ):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Only validated datasets can be processed. "
+            "Validate the dataset first.",
+        )
+
+    _guard_no_active_run(db, dataset)
+
+    settings = get_settings()
+    settings.ensure_storage_dirs()
+
+    file_path = Path(dataset.file_path)
+
+    if not file_path.exists():
+        download_file_from_db(
+            db,
+            "datasets",
+            file_path.name,
+            dataset.file_path,
+        )
+
     try:
-        _guard_not_published(dataset)
-        if dataset.status not in (DatasetStatus.VALIDATED, DatasetStatus.PROCESSED, DatasetStatus.PROCESSING):
-            raise HTTPException(status.HTTP_409_CONFLICT, "Only validated datasets can be processed. Validate the dataset first.")
-        _guard_no_active_run(db, dataset)
-        settings = get_settings()
-        settings.ensure_storage_dirs()
-        
-        # Download file from database
-        file_path = Path(dataset.file_path)
-        if not file_path.exists():
-            download_file_from_db(db, "datasets", file_path.name, dataset.file_path)
-        
-        frame, report = preprocess_dataset(file_path, dataset.config)
-        out_path = settings.processed_dir / f"dataset_{dataset.id}.parquet"
-        save_processed(frame, out_path)
-        dataset.processed_path = str(out_path)
-        dataset.preprocessing_report = report
-        dataset.status = DatasetStatus.PROCESSED
-        db.commit()
-        upload_file_to_db(db, "datasets", out_path)
-        db.refresh(dataset)
-        
-        # Clean up downloaded file to save space
-        if file_path.exists():
-            file_path.unlink(missing_ok=True)
-        
-        return dataset
+        frame, report = preprocess_dataset(
+            file_path,
+            dataset.config,
+        )
+
+        out_path = (
+            settings.processed_dir
+            / f"dataset_{dataset.id}.parquet"
+        )
+
+        save_processed(
+            frame,
+            out_path,
+        )
+
+        result = _save_processing_result(
+            db,
+            dataset.id,
+            out_path,
+            report,
+        )
+
+        file_path.unlink(missing_ok=True)
+
+        return result or dataset
+
     except Exception as exc:
         db.rollback()
-        # Update status to validated (not processed) with error
+
+        dataset = db.get(Dataset, dataset.id) or dataset
+
         dataset.status = DatasetStatus.VALIDATED
         dataset.preprocessing_report = {
             "error": str(exc),
             "passed": False,
         }
+
         db.commit()
+
         raise
 
 
-def delete_dataset(db: Session, dataset: Dataset) -> None:
+# ---------------------------------------------------------------------------------------------------
+# Delete / listing / EDA
+
+
+def delete_dataset(
+    db: Session,
+    dataset: Dataset,
+) -> None:
     _guard_not_published(dataset)
     _guard_no_active_run(db, dataset)
+
     settings = get_settings()
-    delete_file_from_db(db, "datasets", Path(dataset.file_path).name)
+
+    delete_file_from_db(
+        db,
+        "datasets",
+        Path(dataset.file_path).name,
+    )
+
     _remove_file(dataset.file_path)
+
     if dataset.processed_path:
-        delete_file_from_db(db, "datasets", Path(dataset.processed_path).name)
+        delete_file_from_db(
+            db,
+            "datasets",
+            Path(dataset.processed_path).name,
+        )
+
         _remove_file(dataset.processed_path)
-    
-    for m in dataset.models:
-        unique_name = f"dataset_{m.dataset_id}_v{m.version}_{m.model_name}.joblib"
-        delete_file_from_db(db, "models", unique_name)
-        
-    shutil.rmtree(settings.MODEL_STORAGE_PATH / f"dataset_{dataset.id}", ignore_errors=True)
+
+    for model in dataset.models:
+        unique_name = (
+            f"dataset_{model.dataset_id}"
+            f"_v{model.version}"
+            f"_{model.model_name}.joblib"
+        )
+
+        delete_file_from_db(
+            db,
+            "models",
+            unique_name,
+        )
+
+    shutil.rmtree(
+        settings.MODEL_STORAGE_PATH
+        / f"dataset_{dataset.id}",
+        ignore_errors=True,
+    )
+
     db.delete(dataset)
     db.commit()
 
 
-def list_datasets(db: Session, only_status: str | None = None) -> list[Dataset]:
-    stmt = select(Dataset).order_by(Dataset.created_at.desc(), Dataset.id.desc())
+def list_datasets(
+    db: Session,
+    only_status: str | None = None,
+) -> list[Dataset]:
+    stmt = (
+        select(Dataset)
+        .order_by(
+            Dataset.created_at.desc(),
+            Dataset.id.desc(),
+        )
+    )
+
     if only_status:
-        stmt = stmt.where(Dataset.status == only_status)
+        stmt = stmt.where(
+            Dataset.status == only_status
+        )
+
     return list(db.scalars(stmt))
 
 
-def feature_defaults_for(dataset: Dataset) -> tuple[list[int], list[int]]:
-    """Convenience for the training service."""
+def feature_defaults_for(
+    dataset: Dataset,
+) -> tuple[list[int], list[int]]:
     derived = dataset.config["derived"]
-    horizon = dataset.config.get("forecast_horizon_steps") or derived["default_horizon_steps"]
-    return default_lags_and_windows(derived["modeling_minutes"], horizon)
+
+    horizon = (
+        dataset.config.get("forecast_horizon_steps")
+        or derived["default_horizon_steps"]
+    )
+
+    return default_lags_and_windows(
+        derived["modeling_minutes"],
+        horizon,
+    )
 
 
-def compute_eda(db: Session, dataset: Dataset) -> dict:
-    if dataset.status not in (DatasetStatus.PROCESSED, DatasetStatus.PUBLISHED) or not dataset.processed_path:
-        raise HTTPException(status.HTTP_409_CONFLICT, "Process the dataset before viewing exploratory analysis.")
-    download_file_from_db(db, "datasets", Path(dataset.processed_path).name, dataset.processed_path)
+def compute_eda(
+    db: Session,
+    dataset: Dataset,
+) -> dict:
+    if (
+        dataset.status
+        not in (
+            DatasetStatus.PROCESSED,
+            DatasetStatus.PUBLISHED,
+        )
+        or not dataset.processed_path
+    ):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Process the dataset before viewing exploratory analysis.",
+        )
+
+    download_file_from_db(
+        db,
+        "datasets",
+        Path(dataset.processed_path).name,
+        dataset.processed_path,
+    )
+
     try:
-        frame = load_processed(Path(dataset.processed_path))
+        frame = load_processed(
+            Path(dataset.processed_path)
+        )
     except Exception:
-        raise HTTPException(status.HTTP_409_CONFLICT, "The processed dataset file is missing or unreadable.")
-    target = dataset.target_column or (dataset.config or {}).get("target_column")
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "The processed dataset file is missing or unreadable.",
+        )
+
+    target = (
+        dataset.target_column
+        or (dataset.config or {}).get("target_column")
+    )
+
     if not target:
-        raise HTTPException(status.HTTP_409_CONFLICT, "This dataset has no target column configured.")
-    exogenous = list((dataset.config or {}).get("exogenous_columns") or [])
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "This dataset has no target column configured.",
+        )
+
+    exogenous = list(
+        (dataset.config or {}).get(
+            "exogenous_columns"
+        )
+        or []
+    )
+
     try:
-        return build_eda(frame, target, exogenous)
+        return build_eda(
+            frame,
+            target,
+            exogenous,
+        )
+
     except ValueError as exc:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc))
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            str(exc),
+        )
 
 
-# ---------------------------------------------------------------------------------------------------------------
-# Background entry points. They open their OWN database session (the request's session is closed once the response
-# has been sent) and run one heavy task at a time, so two jobs can never add up past a 512 MB instance limit.
+# ---------------------------------------------------------------------------------------------------
+# Background jobs
+#
+# IMPORTANT:
+# These jobs deliberately use separate DB phases.
+#
+# Phase 1:
+#   Open DB -> read metadata/download file -> CLOSE DB
+#
+# Phase 2:
+#   Heavy validation/preprocessing with NO DB session
+#
+# Phase 3:
+#   Open DB -> save result/upload artifact -> CLOSE DB
+#
+# This prevents a PostgreSQL connection from being held while Pandas
+# or validation/preprocessing is consuming CPU/memory.
+
+
 def run_validation_job(dataset_id: int) -> None:
     from app.database.session import SessionLocal
     from app.utils.resources import heavy_job
 
-    with heavy_job(f"validate:{dataset_id}"), SessionLocal() as db:
-        dataset = db.get(Dataset, dataset_id)
-        if dataset is None:
-            return
-        try:
-            run_validation(db, dataset)
-        except Exception:  # the failure is already recorded on the dataset; log it for the Render log stream
-            import traceback
+    with heavy_job(f"validate:{dataset_id}"):
+        # ------------------------------------------------------------------
+        # PHASE 1: database work only
+        # ------------------------------------------------------------------
+        with SessionLocal() as db:
+            dataset = db.get(
+                Dataset,
+                dataset_id,
+            )
 
-            traceback.print_exc()
+            if dataset is None:
+                return
+
+            try:
+                _guard_not_published(dataset)
+                _guard_no_active_run(db, dataset)
+
+                config = _get_validation_config(
+                    dataset
+                )
+
+                file_path = Path(
+                    dataset.file_path
+                )
+
+                if not file_path.exists():
+                    download_file_from_db(
+                        db,
+                        "datasets",
+                        file_path.name,
+                        dataset.file_path,
+                    )
+
+                if not file_path.exists():
+                    raise FileNotFoundError(
+                        f"Dataset file not found: "
+                        f"{dataset.file_path}"
+                    )
+
+            except Exception as exc:
+                db.rollback()
+
+                dataset = db.get(
+                    Dataset,
+                    dataset_id,
+                )
+
+                if dataset:
+                    dataset.status = (
+                        DatasetStatus.REJECTED
+                    )
+
+                    dataset.validation_report = {
+                        "passed": False,
+                        "errors": [
+                            {
+                                "code": "validation_error",
+                                "message": str(exc),
+                            }
+                        ],
+                        "warnings": [],
+                        "checks": {},
+                        "derived": {},
+                    }
+
+                    db.commit()
+
+                raise
+
+        # SessionLocal is CLOSED here.
+        # No PostgreSQL connection is held during validation.
+
+        try:
+            # ------------------------------------------------------------------
+            # PHASE 2: heavy work, NO DB SESSION
+            # ------------------------------------------------------------------
+            report = validate_dataset(
+                file_path,
+                config,
+            )
+
+        except Exception as exc:
+            # ------------------------------------------------------------------
+            # ERROR PERSISTENCE
+            # ------------------------------------------------------------------
+            with SessionLocal() as db:
+                dataset = db.get(
+                    Dataset,
+                    dataset_id,
+                )
+
+                if dataset:
+                    dataset.status = (
+                        DatasetStatus.REJECTED
+                    )
+
+                    dataset.validation_report = {
+                        "passed": False,
+                        "errors": [
+                            {
+                                "code": "validation_error",
+                                "message": str(exc),
+                            }
+                        ],
+                        "warnings": [],
+                        "checks": {},
+                        "derived": {},
+                    }
+
+                    db.commit()
+
+            file_path.unlink(
+                missing_ok=True
+            )
+
+            raise
+
+        # ------------------------------------------------------------------
+        # PHASE 3: persist result
+        # ------------------------------------------------------------------
+        try:
+            with SessionLocal() as db:
+                result = _save_validation_result(
+                    db,
+                    dataset_id,
+                    report,
+                )
+
+                if result is None:
+                    return
+
+        except Exception:
+            file_path.unlink(
+                missing_ok=True
+            )
+            raise
+
+        file_path.unlink(
+            missing_ok=True
+        )
 
 
 def run_processing_job(dataset_id: int) -> None:
     from app.database.session import SessionLocal
     from app.utils.resources import heavy_job
 
-    with heavy_job(f"process:{dataset_id}"), SessionLocal() as db:
-        dataset = db.get(Dataset, dataset_id)
-        if dataset is None:
-            return
-        try:
-            run_processing(db, dataset)
-        except Exception:
-            import traceback
+    with heavy_job(f"process:{dataset_id}"):
+        # ------------------------------------------------------------------
+        # PHASE 1: database work only
+        # ------------------------------------------------------------------
+        with SessionLocal() as db:
+            dataset = db.get(
+                Dataset,
+                dataset_id,
+            )
 
-            traceback.print_exc()
+            if dataset is None:
+                return
+
+            try:
+                _guard_not_published(dataset)
+
+                if dataset.status not in (
+                    DatasetStatus.VALIDATED,
+                    DatasetStatus.PROCESSED,
+                ):
+                    raise HTTPException(
+                        status.HTTP_409_CONFLICT,
+                        "Only validated datasets can be processed. "
+                        "Validate the dataset first.",
+                    )
+
+                _guard_no_active_run(
+                    db,
+                    dataset,
+                )
+
+                settings = get_settings()
+                settings.ensure_storage_dirs()
+
+                file_path = Path(
+                    dataset.file_path
+                )
+
+                if not file_path.exists():
+                    download_file_from_db(
+                        db,
+                        "datasets",
+                        file_path.name,
+                        dataset.file_path,
+                    )
+
+                if not file_path.exists():
+                    raise FileNotFoundError(
+                        f"Dataset file not found: "
+                        f"{dataset.file_path}"
+                    )
+
+                dataset_config = dict(
+                    dataset.config or {}
+                )
+
+                out_path = (
+                    settings.processed_dir
+                    / f"dataset_{dataset.id}.parquet"
+                )
+
+            except Exception as exc:
+                db.rollback()
+
+                dataset = db.get(
+                    Dataset,
+                    dataset_id,
+                )
+
+                if dataset:
+                    dataset.preprocessing_report = {
+                        "error": str(exc),
+                        "passed": False,
+                    }
+
+                    db.commit()
+
+                raise
+
+        # SessionLocal is CLOSED here.
+        # No PostgreSQL connection is held during preprocessing.
+
+        try:
+            # ------------------------------------------------------------------
+            # PHASE 2: heavy Pandas processing, NO DB SESSION
+            # ------------------------------------------------------------------
+            frame, report = preprocess_dataset(
+                file_path,
+                dataset_config,
+            )
+
+            save_processed(
+                frame,
+                out_path,
+            )
+
+        except Exception as exc:
+            # ------------------------------------------------------------------
+            # ERROR PERSISTENCE
+            # ------------------------------------------------------------------
+            with SessionLocal() as db:
+                dataset = db.get(
+                    Dataset,
+                    dataset_id,
+                )
+
+                if dataset:
+                    dataset.status = (
+                        DatasetStatus.VALIDATED
+                    )
+
+                    dataset.preprocessing_report = {
+                        "error": str(exc),
+                        "passed": False,
+                    }
+
+                    db.commit()
+
+            file_path.unlink(
+                missing_ok=True
+            )
+
+            raise
+
+        # ------------------------------------------------------------------
+        # PHASE 3: persist processed result
+        # ------------------------------------------------------------------
+        try:
+            with SessionLocal() as db:
+                result = _save_processing_result(
+                    db,
+                    dataset_id,
+                    out_path,
+                    report,
+                )
+
+                if result is None:
+                    return
+
+        except Exception:
+            raise
+
+        file_path.unlink(
+            missing_ok=True
+        )
+
+
+# ---------------------------------------------------------------------------------------------------
+# Recovery
 
 
 def recover_interrupted_jobs() -> int:
-    """Datasets left 'validating' / 'processing' by a crash or restart can never finish: put them back one step so
-    the admin can simply click the button again (instead of being stuck until a manual reset)."""
+    """
+    Recover datasets left in VALIDATING / PROCESSING after
+    a crash or restart.
+    """
+
     from app.database.session import SessionLocal
 
-    note = "Interrupted: the server restarted (for example after running out of memory) while this step was running. Run it again."
+    note = (
+        "Interrupted: the server restarted "
+        "(for example after running out of memory) "
+        "while this step was running. Run it again."
+    )
+
     fixed = 0
+
     with SessionLocal() as db:
-        for d in db.scalars(select(Dataset).where(Dataset.status.in_([DatasetStatus.VALIDATING, DatasetStatus.PROCESSING]))):
-            if d.status == DatasetStatus.VALIDATING:
-                d.status = DatasetStatus.CONFIGURED if (d.config or {}).get("timestamp_columns") else DatasetStatus.UPLOADED
-                d.validation_report = {"passed": False, "errors": [{"code": "interrupted", "message": note}], "warnings": [], "checks": {}, "derived": {}}
+        datasets = db.scalars(
+            select(Dataset).where(
+                Dataset.status.in_(
+                    [
+                        DatasetStatus.VALIDATING,
+                        DatasetStatus.PROCESSING,
+                    ]
+                )
+            )
+        )
+
+        for dataset in datasets:
+            if dataset.status == DatasetStatus.VALIDATING:
+                dataset.status = (
+                    DatasetStatus.CONFIGURED
+                    if (dataset.config or {}).get(
+                        "timestamp_columns"
+                    )
+                    else DatasetStatus.UPLOADED
+                )
+
+                dataset.validation_report = {
+                    "passed": False,
+                    "errors": [
+                        {
+                            "code": "interrupted",
+                            "message": note,
+                        }
+                    ],
+                    "warnings": [],
+                    "checks": {},
+                    "derived": {},
+                }
+
             else:
-                d.status = DatasetStatus.VALIDATED
-                d.preprocessing_report = {"error": note, "passed": False}
+                dataset.status = (
+                    DatasetStatus.VALIDATED
+                )
+
+                dataset.preprocessing_report = {
+                    "error": note,
+                    "passed": False,
+                }
+
             fixed += 1
+
         db.commit()
+
     return fixed
 
 
-# ---------------------------------------------------------------------------------------------------------------
-# Synchronous preconditions. The API calls these BEFORE it flips the dataset into 'validating'/'processing', so a
-# request that cannot run is refused with a clear 409 and the dataset keeps its current state (previously the check
-# ran inside the background job, after the status had already been overwritten, which could knock a published
-# dataset out of 'published').
-def precheck_validation(db: Session, dataset: Dataset) -> None:
-    _guard_not_published(dataset)
-    if not (dataset.config or {}).get("timestamp_columns"):
-        suggested = (dataset.schema_profile or {}).get("suggested_config", {})
-        if suggested.get("timestamp_columns") and suggested.get("target_column"):
-            raise HTTPException(status.HTTP_409_CONFLICT, "Configure the dataset (timestamp and target columns) before validating.")
-    _guard_no_active_run(db, dataset)
+# ---------------------------------------------------------------------------------------------------
+# Synchronous preconditions
 
 
-def precheck_processing(db: Session, dataset: Dataset) -> None:
+def precheck_validation(
+    db: Session,
+    dataset: Dataset,
+) -> None:
     _guard_not_published(dataset)
-    if dataset.status not in (DatasetStatus.VALIDATED, DatasetStatus.PROCESSED):
-        raise HTTPException(status.HTTP_409_CONFLICT, "Only validated datasets can be processed. Validate the dataset first.")
-    _guard_no_active_run(db, dataset)
+
+    if not (
+        dataset.config or {}
+    ).get("timestamp_columns"):
+        suggested = (
+            dataset.schema_profile or {}
+        ).get("suggested_config", {})
+
+        if (
+            suggested.get("timestamp_columns")
+            and suggested.get("target_column")
+        ):
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "Configure the dataset "
+                "(timestamp and target columns) "
+                "before validating.",
+            )
+
+    _guard_no_active_run(
+        db,
+        dataset,
+    )
+
+
+def precheck_processing(
+    db: Session,
+    dataset: Dataset,
+) -> None:
+    _guard_not_published(dataset)
+
+    if dataset.status not in (
+        DatasetStatus.VALIDATED,
+        DatasetStatus.PROCESSED,
+    ):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Only validated datasets can be processed. "
+            "Validate the dataset first.",
+        )
+
+    _guard_no_active_run(
+        db,
+        dataset,
+    )
